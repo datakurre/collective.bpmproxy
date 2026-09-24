@@ -44,6 +44,11 @@
     pkgs.curl
     # Browsers for `make e2e` (see the e2e-smoke script below).
     pkgs.playwright-driver.browsers
+    # Scenario/screencast recording compositing (ffmpeg/ffprobe). Pinned here
+    # instead of resolved per call via `nix shell --impure --expr
+    # 'builtins.getFlake "nixpkgs"'`, which re-evaluates the flake registry
+    # on every invocation.
+    pkgs.ffmpeg-headless
   ];
 
   languages.java = {

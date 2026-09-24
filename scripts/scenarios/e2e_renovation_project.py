@@ -117,13 +117,12 @@ def show_actor_slide(page, eyebrow, title, subtitle):
 
 
 def nix_ffmpeg(tool, *args, capture=True):
-    expression = (
-        'with (builtins.getFlake "nixpkgs").legacyPackages.'
-        "${builtins.currentSystem}; ffmpeg-headless"
-    )
+    """Run ffmpeg/ffprobe, pinned via devenv.nix's ``ffmpeg-headless`` package
+    (see `make shell`) rather than resolved per call through
+    ``nix shell --impure``, which re-evaluated the flake registry on every
+    invocation."""
     return subprocess.run(
-        ["nix", "shell", "--impure", "--expr", expression, "--command", tool]
-        + [str(argument) for argument in args],
+        [tool] + [str(argument) for argument in args],
         check=True,
         capture_output=capture,
         text=True,

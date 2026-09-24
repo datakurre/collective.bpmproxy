@@ -35,10 +35,14 @@ prerequisites, personas, and artifacts.
   Cockpit timeline and will refuse to build a misordered timeline.
 - **Interleave Cockpit with the Plone actors; do not run them in sequence.**
   Cockpit's definition page loads its instance table once and does not poll, so
-  a new instance never appears without navigation. Do it by navigating — click
-  “Processes”, then the definition again — not with `page.reload()`. A reload
+  a new instance never appears without navigation. Prefer navigating — click
+  “Processes”, then the definition again — over `page.reload()`: a reload
   re-bootstraps the Angular SPA and puts a flash in the middle of the main
-  view; an in-app route change re-queries the table with no flash.
+  view, where an in-app route change re-queries the table with no flash.
+  `e2e_renovation_project.py` does reload Cockpit at a few points, to force a
+  refresh past auto-refresh's polling interval right after a transition that
+  can otherwise complete between intervals; treat that as the deliberate
+  exception, not the rule -- an in-app route change is still the default.
 - Authenticate the unrecorded Cockpit context first, copy its
   `storage_state()`, close it, and use that state when creating the recorded
   Cockpit context. This keeps the login redirect out of the recording while
@@ -64,11 +68,13 @@ the pointer again after navigation because a new document recreates the
 injected cursor at its centered default position.
 
 Recording runners also call `show_actor_slide()` at the start of each persona
-turn: a full-frame overlay naming the persona and the turn's place in the
-sequence (e.g. "Renovation project · 4 / 9"), held for 8s via
-`page.evaluate()` before the turn's own clicks begin. This matters more the
-more turns and personas a scenario has -- worth adding to any new scenario
-with more than one or two personas.
+turn: it records the persona's name and the turn's place in the sequence
+(e.g. "Renovation project · 4 / 9") as title metadata on the page object and
+waits 8s before the turn's own clicks begin. It no longer draws a
+`page.evaluate()` overlay -- the title card is rendered as its own segment by
+`compose_recording()` at edit time and spliced in ahead of the turn's clip.
+This matters more the more turns and personas a scenario has -- worth adding
+to any new scenario with more than one or two personas.
 
 The PIP composer keeps the Cockpit inset hidden for that 8s interlude, then
 restores it for the actor's actual Plone interaction. This rule applies to all
@@ -98,13 +104,19 @@ The runner obtains `ffmpeg-headless` through Nix, so no global FFmpeg install or
 default FFmpeg banner and per-frame progress bury the runner's own output.
 
 Verify the result rather than trusting the exit code: check that the PIP output
-has exactly one `1920x1080` 25 fps stream and matches the observer duration:
+has exactly one `1920x1080` 25 fps stream:
 
 ```sh
 ffprobe -v error -show_entries format=duration \
   -show_entries stream=width,height,r_frame_rate -of default=noprint_wrappers=1 \
   docs/renovation-project-pip.webm
 ```
+
+Duration should match the observer recording for review-process and
+contact-form, whose `output_end` is derived from the observer's own measured
+length. Renovation is the exception: its composer trims the output to a
+hard-coded `final_focus_switch_at = 117.0` plus an 8s hold, so its PIP output
+is shorter than `renovation-project-cockpit.webm` by design, not by bug.
 
 Each scenario doc's own *Verifying a take* then builds a contact sheet with
 `ffmpeg -vf 'fps=F,scale=480:-1,tile=RxC' -frames:v 1`. `tile=RxC` buffers

@@ -10,3 +10,9 @@ are stable.
 """
 
 __version__ = "0.1.0"
+
+from screencast.library import Screencast  # noqa: E402
+from screencast.timeline import Timeline  # noqa: E402
+
+
+__all__ = ["Screencast", "Timeline"]

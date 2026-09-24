@@ -40,6 +40,10 @@ def main(argv=None):
     log_parser = subparsers.add_parser("log", help="Render log.html for a take")
     log_parser.add_argument("take")
 
+    compose_parser = subparsers.add_parser("compose", help="Compose a take's timeline")
+    compose_parser.add_argument("take")
+    compose_parser.add_argument("--output", default=None)
+
     args = parser.parse_args(argv)
 
     if args.command == "run":
@@ -84,6 +88,13 @@ def main(argv=None):
 
     if args.command == "log":
         path = driver.render_log(args.take)
+        print(f"Wrote {path}")
+        return 0
+
+    if args.command == "compose":
+        from screencast.compose import compose
+
+        path = compose(args.take, output=args.output)
         print(f"Wrote {path}")
         return 0
 

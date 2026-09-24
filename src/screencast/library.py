@@ -442,8 +442,28 @@ class Screencast:
         """Resolve `selector` against the current page, at `index` (0 is
         the first match, -1 the last) -- e.g. the most recently created row
         in a table that only ever grows, which project keywords need and
-        Playwright's own `.first`/`.last` express."""
-        locator = self._page().locator(selector)
+        Playwright's own `.first`/`.last` express.
+
+        A `label=<text>` selector resolves via `page.get_by_label()`
+        instead of `page.locator()`: form-js (and most form libraries)
+        associate an input with its visible label rather than an
+        accessible role+name, and `get_by_label` has no plain-string
+        equivalent in Playwright's own locator engine syntax (unlike
+        `role=`, which `.locator()` already understands natively).
+
+        A `<frame selector> >>> <inner selector>` selector resolves via
+        `page.frame_locator()` -- `>>>` looks like Playwright's own
+        shadow-DOM-piercing combinator but does *not* cross an `<iframe>`
+        boundary (verified: it parses as a plain child combinator against
+        the iframe *element*, which times out), so real `<iframe>` content
+        -- a rich-text editor's body, for instance -- needs this instead."""
+        if selector.startswith("label="):
+            locator = self._page().get_by_label(selector[len("label=") :])
+        elif " >>> " in selector:
+            frame_selector, _, inner_selector = selector.partition(" >>> ")
+            locator = self._page().frame_locator(frame_selector).locator(inner_selector)
+        else:
+            locator = self._page().locator(selector)
         index = int(index)
         if index == 0:
             return locator.first

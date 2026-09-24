@@ -43,6 +43,21 @@ class FakeLocator:
     def aria_snapshot(self):
         return "- generic"
 
+    def get_attribute(self, name):
+        return None
+
+    def count(self):
+        return 1
+
+
+class FakeFrameLocator:
+    def __init__(self, page, frame_selector):
+        self.page = page
+        self.frame_selector = frame_selector
+
+    def locator(self, selector):
+        return FakeLocator(self.page, f"{self.frame_selector} >>> {selector}")
+
 
 class FakeMouse:
     def __init__(self):
@@ -84,6 +99,12 @@ class FakePage:
 
     def locator(self, selector):
         return FakeLocator(self, selector)
+
+    def get_by_label(self, text):
+        return FakeLocator(self, f"label={text}")
+
+    def frame_locator(self, selector):
+        return FakeFrameLocator(self, selector)
 
     def bring_to_front(self):
         pass

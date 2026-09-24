@@ -1,0 +1,235 @@
+"""screencast.verify tests against real ffmpeg output on tiny synthetic
+clips -- skipped when ffmpeg/ffprobe aren't on PATH. Also manually verified
+end-to-end against the real toy take composed for #4/#5/#6 (see the #7
+commit message)."""
+
+from screencast.compose import compose
+from screencast.timeline import Timeline
+from screencast.verify import detect_black_intervals
+from screencast.verify import detect_freezes
+from screencast.verify import frame_luma_range
+from screencast.verify import predicted_duration
+from screencast.verify import verify
+import pytest
+import shutil
+import subprocess
+
+
+requires_ffmpeg = pytest.mark.skipif(
+    not (shutil.which("ffmpeg") and shutil.which("ffprobe")),
+    reason="ffmpeg/ffprobe not on PATH",
+)
+
+
+def make_clip(path, duration, color="blue", size="320x180"):
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            f"color=c={color}:s={size}:d={duration}:r=25",
+            "-c:v",
+            "libvpx",
+            "-deadline",
+            "realtime",
+            "-cpu-used",
+            "16",
+            str(path),
+        ],
+        check=True,
+    )
+
+
+@requires_ffmpeg
+def test_frame_luma_range_is_near_zero_for_a_solid_color(tmp_path):
+    clip = tmp_path / "solid.webm"
+    make_clip(clip, 1.0, color="black")
+    assert frame_luma_range(clip, 0.5) < 4
+
+
+@requires_ffmpeg
+def test_frame_luma_range_is_large_for_content(tmp_path):
+    clip = tmp_path / "checkers.webm"
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc=size=320x180:duration=1:rate=25",
+            str(clip),
+        ],
+        check=True,
+    )
+    assert frame_luma_range(clip, 0.5) > 20
+
+
+@requires_ffmpeg
+def test_detect_freezes_finds_a_frozen_run(tmp_path):
+    clip = tmp_path / "frozen.webm"
+    make_clip(clip, 3.0, color="red")
+    freezes = detect_freezes(clip, min_duration=1.0)
+    assert freezes and freezes[0] > 1.0
+
+
+@requires_ffmpeg
+def test_detect_black_intervals_finds_near_pure_black(tmp_path):
+    clip = tmp_path / "black.webm"
+    make_clip(clip, 2.0, color="black")
+    intervals = detect_black_intervals(clip, min_duration=0.5)
+    assert intervals
+    assert intervals[0]["duration"] > 0.5
+
+
+@requires_ffmpeg
+def test_detect_black_intervals_ignores_a_dark_but_not_black_theme(tmp_path):
+    """The project's own title cards are a dark navy (#0f172a) -- the
+    default blackdetect threshold would false-positive on every take."""
+    clip = tmp_path / "navy.webm"
+    make_clip(clip, 2.0, color="0x0f172a")
+    intervals = detect_black_intervals(clip, min_duration=0.5)
+    assert intervals == []
+
+
+def make_animated_clip(path, duration, color="blue"):
+    """Per-frame random noise over a solid color, standing in for real
+    recorded footage (which always has at least cursor movement) -- unlike
+    make_clip()'s flat color (or, it turns out, ffmpeg's own `testsrc`,
+    whose motion is too gradual to clear freezedetect's noise floor over a
+    1s window), this reliably does not itself look like dead air or a
+    blank frame to freezedetect/frame_luma_range. `-crf 20 -b:v 4M` keeps
+    enough bitrate that the noise survives frame to frame -- a more
+    aggressively compressed encode converges consecutive frames to the
+    same predicted content despite the spatial noise, which reads as
+    frozen. `-cpu-used 5` keeps this fast regardless (~0.4s/clip here vs.
+    ~30s at the encoder's default effort)."""
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            f"color=c={color}:s=320x180:d={duration}:r=25",
+            "-vf",
+            "noise=alls=40:allf=t+u",
+            "-c:v",
+            "libvpx",
+            "-deadline",
+            "good",
+            "-cpu-used",
+            "5",
+            "-crf",
+            "20",
+            "-b:v",
+            "4M",
+            str(path),
+        ],
+        check=True,
+    )
+
+
+def make_take(take_dir, observer_duration=4.0, with_turn=True):
+    take_dir.mkdir(parents=True, exist_ok=True)
+    make_animated_clip(take_dir / "observer.webm", observer_duration)
+    timeline = Timeline.new("observer.webm")
+    if with_turn:
+        make_animated_clip(take_dir / "author.webm", 1.5)
+        timeline.add_actor_clip("author", "author.webm", offset=1.0, duration=1.5)
+        timeline.add_event({"type": "turn_start", "time": 1.0, "actor": "author"})
+        timeline.add_event({"type": "turn_end", "time": 2.5, "actor": "author"})
+    timeline.save(take_dir / "timeline.json")
+    return timeline
+
+
+@requires_ffmpeg
+def test_predicted_duration_adds_chapter_and_hold_durations(tmp_path):
+    timeline = Timeline.new("observer.webm")
+    timeline.add_event(
+        {
+            "type": "chapter",
+            "time": 0.0,
+            "eyebrow": "e",
+            "title": "t",
+            "subtitle": "s",
+            "duration": 3.0,
+        }
+    )
+    timeline.add_event({"type": "hold", "time": 1.0, "duration": 2.0})
+    assert predicted_duration(timeline, observer_duration=5.0) == 10.0
+
+
+@requires_ffmpeg
+def test_verify_passes_a_clean_composed_take(tmp_path):
+    take_dir = tmp_path / "take"
+    make_take(take_dir)
+    compose(take_dir)
+
+    report = verify(take_dir)
+    assert report["ok"], report["findings"]
+    assert (take_dir / "contact-sheet.png").exists()
+
+
+@requires_ffmpeg
+def test_verify_flags_a_blank_composed_output(tmp_path):
+    take_dir = tmp_path / "take"
+    make_take(take_dir, with_turn=False)
+    # Compose normally to get a correctly *sized* and *timed* file, then
+    # replace its content with a near-black clip of the same duration --
+    # this is what a font/rendering failure looks like: right shape, wrong
+    # content.
+    output = compose(take_dir)
+    from screencast.compose import ffprobe_duration
+
+    duration = ffprobe_duration(output)
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            f"color=c=black:s=1920x1080:d={duration}:r=25",
+            "-c:v",
+            "libvpx-vp9",
+            str(output),
+        ],
+        check=True,
+    )
+
+    report = verify(take_dir)
+    assert not report["ok"]
+    assert any(f["check"] == "blank_frame" for f in report["findings"])
+
+
+@requires_ffmpeg
+def test_verify_flags_wrong_frame_size(tmp_path):
+    take_dir = tmp_path / "take"
+    make_take(take_dir, with_turn=False)
+    make_clip(take_dir / "output.webm", 4.0, size="640x360")
+
+    report = verify(take_dir)
+    assert not report["ok"]
+    assert any(f["check"] == "stream" for f in report["findings"])
+
+
+@requires_ffmpeg
+def test_verify_flags_duration_mismatch(tmp_path):
+    take_dir = tmp_path / "take"
+    make_take(take_dir, with_turn=False)
+    make_clip(take_dir / "output.webm", 10.0, size="1920x1080")
+
+    report = verify(take_dir)
+    assert not report["ok"]
+    assert any(f["check"] == "duration" for f in report["findings"])

@@ -1,6 +1,7 @@
 """`python -m screencast` -- see scripts/screencast/driver.py for what each
 subcommand actually does; this module is argument parsing only."""
 
+from pathlib import Path
 from screencast import driver
 import argparse
 import sys
@@ -43,6 +44,13 @@ def main(argv=None):
     compose_parser = subparsers.add_parser("compose", help="Compose a take's timeline")
     compose_parser.add_argument("take")
     compose_parser.add_argument("--output", default=None)
+
+    verify_parser = subparsers.add_parser("verify", help="Verify a composed take")
+    verify_parser.add_argument("take")
+    verify_parser.add_argument("--output", default=None, help="Composed video path")
+    verify_parser.add_argument("--contact-sheet", default=None)
+    verify_parser.add_argument("--rows", type=int, default=6)
+    verify_parser.add_argument("--cols", type=int, default=5)
 
     args = parser.parse_args(argv)
 
@@ -97,6 +105,23 @@ def main(argv=None):
         path = compose(args.take, output=args.output)
         print(f"Wrote {path}")
         return 0
+
+    if args.command == "verify":
+        from screencast.verify import verify
+        import json
+
+        report = verify(
+            args.take,
+            output_video=args.output,
+            contact_sheet=args.contact_sheet,
+            rows=args.rows,
+            cols=args.cols,
+        )
+        report_path = Path(args.take) / "report.json"
+        report_path.write_text(json.dumps(report, indent=2) + "\n")
+        print(json.dumps(report, indent=2))
+        print(f"Report: {report_path}")
+        return 0 if report["ok"] else 1
 
     parser.error(f"Unknown command {args.command!r}")
     return 2

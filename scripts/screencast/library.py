@@ -222,6 +222,21 @@ class Screencast:
             observer_name=name,
         )
 
+    def end_observer(self):
+        """Close the observer context, flushing its video -- Cockpit (or
+        whatever the observer is) "closes last": call this as the story's
+        very last keyword. Without it the observer's .webm never finishes
+        writing and ffprobe sees a near-empty file, since Playwright only
+        flushes a context's video on `close()`. Does not stop the browser
+        itself -- that stays alive for a following `probe` call."""
+        context = _SESSION.observer_context
+        if context is None:
+            raise FatalError("No observer -- call Start Observer first")
+        context.close()
+        _SESSION.observer_context = None
+        _SESSION.observer_page = None
+        _SESSION.current_page = None
+
     def observe(self, url=None, wait=DEFAULT_OBSERVE_WAIT):
         """Bring the observer to the front, and refresh it. With `url`, this
         is an in-app route change (`page.goto()`), never `page.reload()`:

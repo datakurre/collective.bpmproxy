@@ -108,6 +108,23 @@ def test_browser_is_reused_across_repeated_instantiation(tmp_path):
     assert len(FakePlaywright.instances) == 1
 
 
+def test_end_observer_closes_the_context_and_clears_current_page(tmp_path):
+    screencast = library_module.Screencast(take_dir=tmp_path)
+    screencast.start_observer("cockpit", "http://example.test/cockpit")
+    context = library_module._SESSION.observer_context
+    screencast.end_observer()
+
+    assert context.closed
+    assert library_module._SESSION.observer_context is None
+    assert library_module._SESSION.current_page is None
+
+
+def test_end_observer_without_start_raises(tmp_path):
+    screencast = library_module.Screencast(take_dir=tmp_path)
+    with pytest.raises(FatalError):
+        screencast.end_observer()
+
+
 def test_timeline_written_to_disk_by_the_listener_on_close(tmp_path):
     screencast = library_module.Screencast(take_dir=tmp_path)
     screencast.start_observer("cockpit", "http://example.test/cockpit")

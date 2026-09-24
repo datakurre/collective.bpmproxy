@@ -6,13 +6,21 @@ against this fake through monkeypatched `playwright.sync_api`)."""
 
 
 class FakeLocator:
-    def __init__(self, page, selector):
+    def __init__(self, page, selector, index=0):
         self.page = page
         self.selector = selector
+        self.index = index
 
     @property
     def first(self):
-        return self
+        return FakeLocator(self.page, self.selector, index=0)
+
+    @property
+    def last(self):
+        return FakeLocator(self.page, self.selector, index=-1)
+
+    def nth(self, index):
+        return FakeLocator(self.page, self.selector, index=index)
 
     def scroll_into_view_if_needed(self):
         pass
@@ -113,6 +121,9 @@ class FakeContext:
         self.closed = True
         for page in self.pages:
             page.closed = True
+
+    def storage_state(self):
+        return {}
 
 
 class FakeChromium:

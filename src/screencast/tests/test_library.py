@@ -158,3 +158,47 @@ def test_paste_text_fills_without_per_keystroke_typing(tmp_path):
     screencast.paste_text("#body", "a long paragraph")
     page = library_module._SESSION.current_page
     assert page.filled["#body"] == "a long paragraph"
+
+
+def test_human_click_with_index_minus_one_clicks_the_last_match(tmp_path):
+    screencast = library_module.Screencast(take_dir=tmp_path)
+    screencast.start_observer("cockpit", "http://example.test/cockpit")
+    screencast.human_click("a.row", index=-1)
+    locator = library_module._SESSION.current_page.locator("a.row")
+    assert locator.last.index == -1
+
+
+def test_scratch_context_does_not_touch_the_timeline(tmp_path):
+    screencast = library_module.Screencast(take_dir=tmp_path)
+    screencast.start_scratch_context("http://example.test/login")
+    state = screencast.get_storage_state()
+    screencast.end_scratch_context()
+
+    assert state == {}
+    assert library_module._SESSION.timeline is None
+    assert library_module._SESSION.current_page is None
+
+
+def test_scratch_context_restores_the_previous_current_page(tmp_path):
+    screencast = library_module.Screencast(take_dir=tmp_path)
+    screencast.start_observer("cockpit", "http://example.test/cockpit")
+    observer_page = library_module._SESSION.current_page
+
+    screencast.start_scratch_context("http://example.test/login")
+    assert library_module._SESSION.current_page is not observer_page
+    screencast.end_scratch_context()
+
+    assert library_module._SESSION.current_page is observer_page
+
+
+def test_end_scratch_context_without_start_raises(tmp_path):
+    screencast = library_module.Screencast(take_dir=tmp_path)
+    with pytest.raises(FatalError):
+        screencast.end_scratch_context()
+
+
+def test_starting_a_second_scratch_context_before_closing_raises(tmp_path):
+    screencast = library_module.Screencast(take_dir=tmp_path)
+    screencast.start_scratch_context("http://example.test/login")
+    with pytest.raises(FatalError):
+        screencast.start_scratch_context("http://example.test/login")

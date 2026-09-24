@@ -56,6 +56,8 @@ class _Session:
         self.current_page = None
         self.current_actor = None
         self._turn_context = None
+        self._scratch_context = None
+        self._page_before_scratch = None
         self._turn_started_at = None
         self.timeline = None
         self.console_logs = {}
@@ -251,6 +253,56 @@ class Screencast:
         _SESSION.current_page = page
         page.wait_for_timeout(int(float(wait) * 1000))
 
+    def start_scratch_context(
+        self, url=None, storage_state=None, http_credentials=None
+    ):
+        """Open an unrecorded, throwaway context/page -- e.g. to complete
+        an OIDC login flow that would otherwise put a login redirect in a
+        recording (see docs/AGENTS.md), or to do privileged setup (deploy
+        fixtures, clear old content) via HTTP Basic Auth rather than a
+        Manager's own form login. Never touches the timeline: no
+        turn_start/turn_end event, and it does not count as an actor turn.
+        Pair with `End Scratch Context`."""
+        self.start_browser()
+        if _SESSION._scratch_context is not None:
+            raise FatalError(
+                "A scratch context is already open -- call End Scratch Context first"
+            )
+        context_kwargs = {"viewport": _SESSION.viewport}
+        if storage_state:
+            context_kwargs["storage_state"] = storage_state
+        if http_credentials:
+            context_kwargs["http_credentials"] = http_credentials
+        context = _SESSION.browser.new_context(**context_kwargs)
+        page = context.new_page()
+        _track_console(page)
+        _SESSION.open_pages.append(page)
+        if url:
+            page.goto(url, wait_until="load")
+        _SESSION._scratch_context = context
+        _SESSION._page_before_scratch = _SESSION.current_page
+        _SESSION.current_page = page
+
+    def end_scratch_context(self):
+        """Close the scratch context and restore whatever page was current
+        before `Start Scratch Context` (typically none yet, if this ran
+        ahead of `Start Observer` as intended)."""
+        context = _SESSION._scratch_context
+        if context is None:
+            raise FatalError("No scratch context -- call Start Scratch Context first")
+        context.close()
+        _SESSION._scratch_context = None
+        _SESSION.current_page = _SESSION._page_before_scratch
+        _SESSION._page_before_scratch = None
+
+    def get_storage_state(self):
+        """The current page's context storage_state() (cookies, local
+        storage) -- typically assigned to a variable right before `End
+        Scratch Context` and passed on to `Start Observer`'s
+        `storage_state` argument, to carry an OIDC session into a recorded
+        context without recording the login redirect."""
+        return self._page().context.storage_state()
+
     # -- actor turns ------------------------------------------------------
 
     def start_actor_turn(self, actor, eyebrow=None, title=None, subtitle=None):
@@ -386,9 +438,22 @@ class Screencast:
 
     # -- human-paced input, against the current page -----------------------
 
-    def human_move(self, selector):
+    def _locator(self, selector, index=0):
+        """Resolve `selector` against the current page, at `index` (0 is
+        the first match, -1 the last) -- e.g. the most recently created row
+        in a table that only ever grows, which project keywords need and
+        Playwright's own `.first`/`.last` express."""
+        locator = self._page().locator(selector)
+        index = int(index)
+        if index == 0:
+            return locator.first
+        if index == -1:
+            return locator.last
+        return locator.nth(index)
+
+    def human_move(self, selector, index=0):
         page = self._page()
-        locator = page.locator(selector).first
+        locator = self._locator(selector, index)
         locator.scroll_into_view_if_needed()
         box = locator.bounding_box()
         if box is None:
@@ -398,30 +463,37 @@ class Screencast:
         )
         page.wait_for_timeout(MOVE_SETTLE_MS)
 
-    def human_click(self, selector):
-        self.human_move(selector)
-        self._page().locator(selector).first.click()
+    def human_click(self, selector, index=0):
+        self.human_move(selector, index)
+        self._locator(selector, index).click()
         self._page().wait_for_timeout(CLICK_SETTLE_MS)
 
-    def human_type(self, selector, text, delay=TYPE_DELAY_MS):
-        self.human_click(selector)
-        locator = self._page().locator(selector).first
+    def human_type(self, selector, text, delay=TYPE_DELAY_MS, index=0):
+        self.human_click(selector, index)
+        locator = self._locator(selector, index)
         locator.fill("")
         locator.press_sequentially(text, delay=int(delay))
         self._page().wait_for_timeout(FILL_SETTLE_MS)
 
-    def paste_text(self, selector, text):
+    def paste_text(self, selector, text, index=0):
         """Fill a long body of text in one shot instead of Human Type's
         per-keystroke pacing -- typing hundreds of characters at 75ms each
         would stretch a turn's recording by tens of seconds for no benefit."""
-        self.human_click(selector)
-        self._page().locator(selector).first.fill(text)
+        self.human_click(selector, index)
+        self._locator(selector, index).fill(text)
         self._page().wait_for_timeout(FILL_SETTLE_MS)
 
-    def wait_until_visible(self, selector, timeout=10000):
-        self._page().locator(selector).first.wait_for(
-            state="visible", timeout=int(timeout)
-        )
+    def wait_until_visible(self, selector, timeout=10000, index=0):
+        self._locator(selector, index).wait_for(state="visible", timeout=int(timeout))
+
+    def count_matches(self, selector):
+        """The number of elements matching `selector` right now -- for a
+        project keyword branching on whether something is present (an IF,
+        not a wait), e.g. Cockpit rendering one of two possible layouts."""
+        return self._page().locator(selector).count()
+
+    def get_attribute(self, selector, name, index=0):
+        return self._locator(selector, index).get_attribute(name)
 
     def go_to(self, url):
         """Navigate the current page. A thin wrapper over `page.goto()` --

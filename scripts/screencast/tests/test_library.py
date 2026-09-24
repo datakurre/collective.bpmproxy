@@ -168,6 +168,22 @@ def test_human_click_with_index_minus_one_clicks_the_last_match(tmp_path):
     assert locator.last.index == -1
 
 
+def test_a_label_selector_resolves_via_get_by_label(tmp_path):
+    screencast = library_module.Screencast(take_dir=tmp_path)
+    screencast.start_observer("cockpit", "http://example.test/cockpit")
+    screencast.human_click("label=Approve")
+    page = library_module._SESSION.current_page
+    assert page.clicked == ["label=Approve"]
+
+
+def test_a_frame_piercing_selector_resolves_via_frame_locator(tmp_path):
+    screencast = library_module.Screencast(take_dir=tmp_path)
+    screencast.start_observer("cockpit", "http://example.test/cockpit")
+    screencast.paste_text("iframe >>> body", "rich text")
+    page = library_module._SESSION.current_page
+    assert page.filled["iframe >>> body"] == "rich text"
+
+
 def test_scratch_context_does_not_touch_the_timeline(tmp_path):
     screencast = library_module.Screencast(take_dir=tmp_path)
     screencast.start_scratch_context("http://example.test/login")

@@ -18,11 +18,12 @@ a `Bpm Proxy` item, pointing its `process_definition_key` at a deployed
 process, and publishing it *is* the entire setup. The page itself renders
 whatever form is next -- the start form to an anonymous visitor, an open
 task's form to whoever is its candidate or assignee -- with no subscriber,
-portlet, or content rule involved. It follows the recording architecture
-documented in [AGENTS.md](AGENTS.md): isolated Playwright contexts per
-actor, a Cockpit observer spanning the whole run, human-paced cursor and
-clicks, and a picture-in-picture composite aligned to real wall-clock
-offsets.
+portlet, or content rule involved. It's built on the generic screencast
+engine (`scripts/screencast/`, the `screencast` agent skill): isolated
+Playwright contexts per actor, a Cockpit observer spanning the whole run,
+human-paced cursor and clicks, and a picture-in-picture composite driven by
+the recorded timeline. See [AGENTS.md](AGENTS.md) for what's specific to
+this project's own recordings.
 
 The other two scenarios each drive exactly one process instance (or a
 chain of one-at-a-time instances) per piece of content. This scenario's own
@@ -261,11 +262,11 @@ services whenever the process or composition changes.
    already learned building/fixing the other two scripts, worth having from
    the start here rather than re-discovering:
    - Port `show_actor_slide()` and `paste_text()` from
-     `scripts/scenarios/e2e_review_process.py` (see docs/AGENTS.md's *Human-readable
-     cursor and clicks* section). The six-turn scenario still benefits from
-     the slide; `message`/`replyMessage` are exactly the
-     free-text fields `paste_text()` (`fill()`, not `press_sequentially()`)
-     is for.
+     `scripts/scenarios/e2e_review_process.py` (see the `browser` and
+     `screencast` agent skills' notes on the cursor overlay and human-paced
+     input). The six-turn scenario still benefits from the slide;
+     `message`/`replyMessage` are exactly the free-text fields `paste_text()`
+     (`fill()`, not `press_sequentially()`) is for.
    - Reception's own turn *publishes* the Bpm Proxy through Plone's standard
      workflow-menu dropdown (`#plone-contentmenu-workflow`), the same
      Patternslib-init race `e2e_review_process.py`'s `author_submits()` and

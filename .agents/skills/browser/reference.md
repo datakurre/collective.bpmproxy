@@ -450,11 +450,14 @@ across the gaps so the inset is continuous:
 
 - `start_mode`/`stop_mode` must be **`clone`**; the default `add` pads with
   black.
-- Trim the same settle (≈0.8 s) off **every** clip, main included. Each one
-  opens blank while its first document paints — on an inset clip those frames
-  are what `clone` would hold, and on the main clip they are what the composite
-  opens on. Trimming the main track by the same amount also makes each inset
-  clip's lead-in exactly its recorded offset, with no correction term.
+- Use measured marker times, not an assumed constant trim. A fixed "every
+  clip opens blank for ≈0.8s while its first document paints" settle drifts
+  as soon as a page gets slower or faster to load, and then silently clips
+  real content or leaves a blank frame in. If you're recording more than a
+  couple of clips per take, or doing this more than once, reach for the
+  `screencast` skill instead of hand-rolling this filter graph again: it
+  turns real keyword start/end times into a timeline (schema v2) a composer
+  reads directly, with no assumed trim anywhere.
 - Size the pads from the measured durations so the inset track comes out
   exactly as long as the trimmed main track. Then no `shortest` is needed and
   nothing is dropped. Compute the holds in the script and assert they are

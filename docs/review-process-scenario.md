@@ -4,11 +4,13 @@ This is the reproducible demo scenario for the `collective.bpmproxy:review_demo`
 profile: Plone's stock Simple Publication Workflow (`submit`/`retract`) wired to
 a parallel-review BPMN process (`examples/review-process`) that delegates to
 multiple reviewers, collects their feedback, and applies the coordinator's
-decision back to Plone as the workflow transition and its comment. It follows
-the recording architecture documented in [AGENTS.md](AGENTS.md): isolated
-Playwright contexts per actor, a Cockpit observer spanning the whole run,
-human-paced cursor and clicks, and a picture-in-picture composite aligned to
-real wall-clock offsets.
+decision back to Plone as the workflow transition and its comment. It's built
+on the generic screencast engine (`scripts/screencast/`, the `screencast`
+agent skill): isolated Playwright contexts per actor, a Cockpit observer
+spanning the whole run, human-paced cursor and clicks, and a picture-in-picture
+composite driven by the recorded timeline. See [AGENTS.md](AGENTS.md) for
+what's specific to this project's own recordings (Cockpit's quirks, the
+diagram viewer).
 
 Unlike [the renovation-project scenario](renovation-project-scenario.md),
 this one drives a single BPMN process instance throughout -- one Document,

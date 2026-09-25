@@ -2,10 +2,9 @@
 
 This directory contains browser scenario recording documentation. Each
 scenario has its own Robot Framework story in `scripts/screencasts/` (built
-on the generic engine in `scripts/screencast/`, see
-collective/collective.bpmproxy#1) and its own `*-scenario.md` here; the
-architecture below is shared by all of them. Run a story from the repository
-root, with `PYTHONPATH=scripts` (already set inside `make shell`):
+on the generic engine in `scripts/screencast/`) and its own `*-scenario.md`
+here. Run a story from the repository root, with `PYTHONPATH=scripts`
+(already set inside `make shell`):
 
 ```sh
 python -m screencast run scripts/screencasts/renovation_project.robot
@@ -18,127 +17,36 @@ See [renovation-project-scenario.md](renovation-project-scenario.md) and
 [contact-form-scenario.md](contact-form-scenario.md) for each one's
 prerequisites, personas, and artifacts.
 
-> This file predates the Robot Framework rewrite and still describes the
-> underlying recording rules in terms of the Playwright primitives they now
-> live behind (`scripts/screencast/library.py`'s `Start Actor Turn`/`Human
-> Click`/etc., and `scripts/screencast/compose.py`'s composer) rather than
-> the old scripts it used to describe. A `screencast` agent skill sibling to
-> `.agents/skills/browser/` is planned to take over the parts of this file
-> that are about the engine rather than this project
-> (collective/collective.bpmproxy#12), after which this file should shrink
-> to bpmproxy-specific notes only.
+Everything about the *engine* -- the three-layer structure, the timeline
+schema and how to re-cut a take by editing it, the agent debug loop
+(`run`/`probe`/`keywords`/`check`) and how to read its failure summary, take
+verification and what each finding means -- lives in the `screencast` agent
+skill (`.agents/skills/screencast/`, a sibling of `.agents/skills/browser/`),
+not here. This file only covers what is specific to *this project's*
+recordings: Cockpit's own quirks, and the BPMN diagram viewer's tab-flash
+fix.
 
-## Recording architecture
+## Cockpit quirks
 
-- Use `1920x1080` for both the Playwright viewport and
-  `record_video_size`. Native Playwright recordings are 25 fps WebM.
-- Do setup in an unrecorded context. Cleanup, deployment, proxy creation, and
-  Cockpit OIDC login otherwise become long blank or white sections in the
-  videos.
-- **A recorded context records from `new_page()` until `close()`, in real
-  time.** Playwright duplicates frames while the page is idle to keep
-  wall-clock sync, so any wall time a context is open but not being driven
-  becomes dead air in its video. Two rules follow, and both matter more than
-  they look:
-  - Create each recorded context *immediately before* the flow it records.
-  - Close each recorded context *as soon as* its flow is done.
-- Cockpit is the observer: open it first and close it last, so its recording
-  spans every other clip. `compose_recording()` places the Plone clips on the
-  Cockpit timeline and will refuse to build a misordered timeline.
-- **Interleave Cockpit with the Plone actors; do not run them in sequence.**
-  Cockpit's definition page loads its instance table once and does not poll, so
-  a new instance never appears without navigation. Prefer navigating — click
-  “Processes”, then the definition again — over `page.reload()`: a reload
-  re-bootstraps the Angular SPA and puts a flash in the middle of the main
-  view, where an in-app route change re-queries the table with no flash.
-  `e2e_renovation_project.py` does reload Cockpit at a few points, to force a
-  refresh past auto-refresh's polling interval right after a transition that
-  can otherwise complete between intervals; treat that as the deliberate
-  exception, not the rule -- an in-app route change is still the default.
-- Authenticate the unrecorded Cockpit context first, copy its
-  `storage_state()`, close it, and use that state when creating the recorded
-  Cockpit context. This keeps the login redirect out of the recording while
-  retaining the OIDC session.
-
-## Human-readable cursor and clicks
-
-Playwright's native video does not add a mouse cursor or click indicators.
-The e2e scripts inject `CURSOR_SCRIPT` into each recorded context
-with `context.add_init_script()`. The script:
-
-1. waits for `DOMContentLoaded` before touching `document.documentElement`
-   (an init script can run before the document element exists);
-2. adds a fixed, high-z-index red cursor ring with a white outline;
-3. updates its position from a capturing `mousemove` listener;
-4. adds a larger red animated ring from a capturing `click` listener; and
-5. removes each click ring after its CSS animation ends.
-
-The recording helpers deliberately move to the target with
-`page.mouse.move(..., steps=18)`, pause for 450 ms, click, and pause for
-850 ms. Text is entered with `press_sequentially(..., delay=75)`. Always move
-the pointer again after navigation because a new document recreates the
-injected cursor at its centered default position.
-
-Recording runners also call `show_actor_slide()` at the start of each persona
-turn: it records the persona's name and the turn's place in the sequence
-(e.g. "Renovation project · 4 / 9") as title metadata on the page object and
-waits 8s before the turn's own clicks begin. It no longer draws a
-`page.evaluate()` overlay -- the title card is rendered as its own segment by
-`compose_recording()` at edit time and spliced in ahead of the turn's clip.
-This matters more the more turns and personas a scenario has -- worth adding
-to any new scenario with more than one or two personas.
-
-The PIP composer keeps the Cockpit inset hidden for that 8s interlude, then
-restores it for the actor's actual Plone interaction. This rule applies to all
-scenario runners; do not add the inset across the complete actor clip.
-
-When a scenario ends on a completed process in Cockpit History, keep the
-information panel visible and drag its `[data-testid="sash"]` left to
-`sash_box["x"] * (2 / 3)`. Do not minimize the panel; the two-thirds position
-is part of the recording composition.
-
-For a body of text longer than a short label (e.g. a document's rich-text
-body), use `paste_text()` (`locator.fill(value)`) instead of
-`human_fill()`/`press_sequentially()` -- typing hundreds of characters at
-75ms/keystroke would stretch a turn's recording by tens of seconds for no
-benefit.
-
-## Picture-in-picture composition
-
-`compose_recording()` assembles role recordings onto the Cockpit timeline
-using wall-clock offsets captured with `time.monotonic()`.
-
-**Never use `overlay=...:shortest=1` here.** It ends the output at the *shorter*
-input, which can silently truncate crucial review and completion scenes.
-
-The runner obtains `ffmpeg-headless` through Nix, so no global FFmpeg install or
-`playwright install` is required. Pass `-v error -nostats` to the encode: the
-default FFmpeg banner and per-frame progress bury the runner's own output.
-
-Verify the result rather than trusting the exit code: check that the PIP output
-has exactly one `1920x1080` 25 fps stream:
-
-```sh
-ffprobe -v error -show_entries format=duration \
-  -show_entries stream=width,height,r_frame_rate -of default=noprint_wrappers=1 \
-  docs/renovation-project-pip.webm
-```
-
-Duration should match the observer recording for review-process and
-contact-form, whose `output_end` is derived from the observer's own measured
-length. Renovation is the exception: its composer trims the output to a
-hard-coded `final_focus_switch_at = 117.0` plus an 8s hold, so its PIP output
-is shorter than `renovation-project-cockpit.webm` by design, not by bug.
-
-Each scenario doc's own *Verifying a take* then builds a contact sheet with
-`ffmpeg -vf 'fps=F,scale=480:-1,tile=RxC' -frames:v 1`. `tile=RxC` buffers
-`R*C` sampled frames before `-frames:v 1` emits the one composite image, so
-those samples must span the *whole* clip: `F` needs to be at least
-`(R*C) / duration`, recomputed from the real take's own `ffprobe` duration,
-not carried over from a previous take -- adding a turn, a `show_actor_slide()`
-interlude, or an end-of-recording hold lengthens the clip and can silently
-push real coverage below what the tile grid was tuned for, without the
-`ffmpeg`/`ffprobe` commands themselves failing.
+- Cockpit's definition page loads its instance table once and does not
+  poll, so a new instance never appears without navigation. Prefer
+  navigating -- `Open Process In Cockpit`/`Observe url=...`, an in-app route
+  change -- over a reload: reloading re-bootstraps the Angular SPA and puts
+  a flash in the middle of the view, where an in-app route change does not.
+- `renovation_project.robot` reloads Cockpit at two points instead
+  (`Observe reload=${True}`), to force a refresh past auto-refresh's own
+  polling interval right after a review that can otherwise complete between
+  polls. Treat that as the deliberate, documented exception -- an in-app
+  route change is still the default everywhere else.
+- When a story ends on a completed process in Cockpit's History view, keep
+  the information panel visible and drag its `[data-testid="sash"]` left to
+  two-thirds of its original width (`Drag Sash To Fraction`,
+  `bpmproxy_keywords.py`) rather than collapsing it -- the two-thirds
+  position is part of the recording composition, not incidental.
+- `bpmproxy.resource`'s `Enable Cockpit Toggle` checks both `aria-pressed`
+  and a describing `aria-label` ("Disable X" while on, "Enable X" while
+  off), because Cockpit exposes toggle state through `aria-pressed` in
+  newer builds and only through the label in older ones.
 
 ## BPMN diagram flashes
 

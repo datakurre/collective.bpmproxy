@@ -166,9 +166,18 @@ Submit Task Form
 Wait For Workflow State
     [Documentation]    Poll a document's URL until its workflow state label
     ...    reads `state_text` -- driven by an external worker reacting to a
-    ...    BPMN task, not by anything this story does directly.
+    ...    BPMN task, not by anything this story does directly. Polls
+    ...    through an unrecorded, authenticated scratch context (like
+    ...    Prepare Fixtures) rather than the current page: a story's
+    ...    wrap-up commonly calls this right after re-entering Cockpit,
+    ...    whose page has no Plone login session and so can never see a
+    ...    still-private document's state label -- the poll would just
+    ...    exhaust its retries and fail.
     [Arguments]    ${doc_url}    ${state_text}    ${retries}=20x    ${interval}=3s
+    ...    ${username}=manager    ${password}=manager
+    Start Scratch Context    http_credentials=${{ {'username': $username, 'password': $password} }}
     Wait Until Keyword Succeeds    ${retries}    ${interval}    Workflow State Is    ${doc_url}    ${state_text}
+    [Teardown]    End Scratch Context
 
 Workflow State Is
     [Arguments]    ${doc_url}    ${state_text}

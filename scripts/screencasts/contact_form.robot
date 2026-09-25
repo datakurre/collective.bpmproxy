@@ -56,6 +56,7 @@ First Visitor Submits
     [Documentation]    Contact form · 2 / 6. Anonymous: no login.
     [Setup]    Start Actor Turn    visitor-1    eyebrow=Contact form · 2 / 6
     ...    title=Visitor    subtitle=Submitting the venue availability inquiry
+    ...    anonymous=${True}
     Go To    ${PROXY_URL}
     Wait Until Visible    \#collective-bpmproxy-form .fjs-container
     Take Screenshot    ${DOCS_DIR}/contact-form-start-form.png
@@ -74,6 +75,7 @@ Second Visitor Submits
     ...    process instance against the same proxy page.
     [Setup]    Start Actor Turn    visitor-2    eyebrow=Contact form · 3 / 6
     ...    title=Visitor    subtitle=Submitting the sponsorship inquiry
+    ...    anonymous=${True}
     Go To    ${PROXY_URL}
     Wait Until Visible    \#collective-bpmproxy-form .fjs-container
     Human Type    label=Your Name    Sponsorship visitor

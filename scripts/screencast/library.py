@@ -311,12 +311,29 @@ class Screencast:
 
     # -- actor turns ------------------------------------------------------
 
-    def start_actor_turn(self, actor, eyebrow=None, title=None, subtitle=None):
+    def start_actor_turn(
+        self,
+        actor,
+        eyebrow=None,
+        title=None,
+        subtitle=None,
+        password=None,
+        anonymous=False,
+    ):
         """Open a short recorded context for one persona turn. Use as
         `[Setup]` on the Task that plays the turn, with `End Actor Turn` as
         its `[Teardown]` -- the context is created immediately before the
         turn and closed immediately after, so no wall time it is open goes
         undriven and becomes dead air in its clip.
+
+        Authenticates the context via HTTP Basic Auth as `actor`/`password`
+        (defaulting `password` to `actor`, this project's convention for its
+        demo users) unless `anonymous=True` -- the same
+        `extra_http_headers={"Authorization": ...}` the old e2e_*.py scripts
+        used, done here via Playwright's own `http_credentials` context
+        option instead. Without this, every turn ran as an anonymous
+        visitor regardless of `actor`, which most stories cannot get past
+        their first permission-gated click.
 
         With `title`, also records a `chapter` event: a title card the
         composer inserts ahead of this turn's clip. No time is spent
@@ -335,6 +352,11 @@ class Screencast:
         if _SESSION.record:
             context_kwargs["record_video_dir"] = str(_SESSION.take_dir)
             context_kwargs["record_video_size"] = _SESSION.viewport
+        if not _as_bool(anonymous):
+            context_kwargs["http_credentials"] = {
+                "username": actor,
+                "password": password or actor,
+            }
         try:
             context = _SESSION.browser.new_context(**context_kwargs)
             context.add_init_script(CURSOR_SCRIPT)

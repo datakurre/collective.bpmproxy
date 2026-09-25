@@ -104,9 +104,18 @@ class _Listener:
         self._pending_dump_paths = None
 
     def close(self):
-        if _SESSION.timeline is not None and _SESSION.take_dir is not None:
-            path = _SESSION.timeline.save(Path(_SESSION.take_dir) / "timeline.json")
-            logger.info(f"Wrote timeline: {path}")
+        _save_timeline()
+
+
+def _save_timeline():
+    """Write the in-progress timeline to disk now, rather than only once at
+    the very end of the run (_Listener.close()) -- a crash mid-take (an
+    ffmpeg/browser death, a killed process) would otherwise lose every
+    event recorded so far along with whatever video did make it to disk.
+    Called after every keyword that mutates the timeline, not just once."""
+    if _SESSION.timeline is not None and _SESSION.take_dir is not None:
+        path = _SESSION.timeline.save(Path(_SESSION.take_dir) / "timeline.json")
+        logger.info(f"Wrote timeline: {path}")
 
 
 def _dump_failure_artifacts(keyword_name):
@@ -252,6 +261,7 @@ class Screencast:
             observer_video=Path(video_path).name if video_path else "",
             observer_name=name,
         )
+        _save_timeline()
 
     def end_observer(self):
         """Close the observer context, flushing its video -- Cockpit (or
@@ -413,6 +423,7 @@ class Screencast:
                         "duration": 8.0,
                     }
                 )
+            _save_timeline()
 
     def end_actor_turn(self, return_to_observer=True):
         """Close the current actor turn's context, flush its video, and
@@ -436,11 +447,15 @@ class Screencast:
                     offset=_SESSION._turn_started_at,
                     duration=round(end_offset - _SESSION._turn_started_at, 3),
                 )
+            _save_timeline()
         _SESSION._turn_context = None
         _SESSION._turn_started_at = None
         _SESSION.current_actor = None
         if return_to_observer and _SESSION.observer_page is not None:
-            self.observe()
+            # Longer than observe()'s own default: this is the cut back to
+            # the wide/observer shot after a turn ends, not a brief in-app
+            # navigation settle -- give the viewer time to register it.
+            self.observe(wait=DEFAULT_RETURN_TO_OBSERVER_WAIT)
 
     # -- timeline-only events, no browser wait -----------------------------
 
@@ -460,6 +475,7 @@ class Screencast:
                 "duration": float(duration),
             }
         )
+        _save_timeline()
 
     def focus(self, view, scale=0.4, margin=24, border=3):
         """Record which recording ('actor' or 'observer') is the composer's
@@ -478,6 +494,7 @@ class Screencast:
                 "border": int(border),
             }
         )
+        _save_timeline()
 
     def hold(self, duration, view="observer"):
         """Record extra observer (or actor) time to hold at the current
@@ -492,6 +509,7 @@ class Screencast:
                 "view": view,
             }
         )
+        _save_timeline()
 
     # -- human-paced input, against the current page -----------------------
 

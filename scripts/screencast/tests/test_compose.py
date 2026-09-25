@@ -202,6 +202,47 @@ def test_compose_uses_every_turns_own_clip_for_a_repeated_actor(tmp_path, monkey
 
 
 @requires_ffmpeg
+def test_compose_uses_a_focus_events_own_border_not_the_default(tmp_path, monkeypatch):
+    """(regression, PR #14 review finding #11) pad_inset() always used the
+    module-level DEFAULT_BORDER constant -- a focus event's own `border`
+    value was resolved by _view_at() and unpacked by every caller, but
+    never actually passed into pad_inset()."""
+    take_dir = tmp_path / "take"
+    take_dir.mkdir()
+    make_clip(take_dir / "observer.webm", 4.0)
+    make_clip(take_dir / "author.webm", 2.0, color="red")
+
+    timeline = Timeline.new("observer.webm")
+    timeline.add_actor_clip("author", "author.webm", offset=1.0, duration=2.0)
+    timeline.add_event({"type": "turn_start", "time": 1.0, "actor": "author"})
+    timeline.add_event(
+        {
+            "type": "focus",
+            "time": 1.0,
+            "view": "actor",
+            "scale": 0.4,
+            "margin": 24,
+            "border": 9,
+        }
+    )
+    timeline.add_event({"type": "turn_end", "time": 3.0, "actor": "author"})
+    timeline.save(take_dir / "timeline.json")
+
+    captured = {}
+
+    def fake_ffmpeg(*args, capture=True):
+        captured["args"] = args
+        Path(args[-1]).write_bytes(b"")
+
+    monkeypatch.setattr(compose_module, "ffmpeg", fake_ffmpeg)
+    compose(take_dir)
+
+    filter_complex = captured["args"][captured["args"].index("-filter_complex") + 1]
+    assert "pad=iw+18:ih+18:9:9:" in filter_complex
+    assert f"pad=iw+{2 * compose_module.DEFAULT_BORDER}:" not in filter_complex
+
+
+@requires_ffmpeg
 def test_compose_rejects_overlapping_turns(tmp_path):
     take_dir = tmp_path / "take"
     take_dir.mkdir()

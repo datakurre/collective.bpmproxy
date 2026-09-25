@@ -1,20 +1,32 @@
 # Recording-specific guidance
 
-This directory contains browser scenario recordings and documentation. Each
-scenario has its own runner script in `scripts/` and its own `*-scenario.md`
-here; the architecture below is shared by all of them. Run a runner from the
-repository root with the browser skill wrapper, e.g.:
+This directory contains browser scenario recording documentation. Each
+scenario has its own Robot Framework story in `scripts/screencasts/` (built
+on the generic engine in `scripts/screencast/`, see
+collective/collective.bpmproxy#1) and its own `*-scenario.md` here; the
+architecture below is shared by all of them. Run a story from the repository
+root, with `PYTHONPATH=scripts` (already set inside `make shell`):
 
 ```sh
-playwright-python scripts/scenarios/e2e_renovation_project.py
-playwright-python scripts/scenarios/e2e_review_process.py
-playwright-python scripts/scenarios/e2e_contact_form.py
+python -m screencast run scripts/screencasts/renovation_project.robot
+python -m screencast run scripts/screencasts/review_process.robot
+python -m screencast run scripts/screencasts/contact_form.robot
 ```
 
 See [renovation-project-scenario.md](renovation-project-scenario.md) and
 [review-process-scenario.md](review-process-scenario.md) and
 [contact-form-scenario.md](contact-form-scenario.md) for each one's
 prerequisites, personas, and artifacts.
+
+> This file predates the Robot Framework rewrite and still describes the
+> underlying recording rules in terms of the Playwright primitives they now
+> live behind (`scripts/screencast/library.py`'s `Start Actor Turn`/`Human
+> Click`/etc., and `scripts/screencast/compose.py`'s composer) rather than
+> the old scripts it used to describe. A `screencast` agent skill sibling to
+> `.agents/skills/browser/` is planned to take over the parts of this file
+> that are about the engine rather than this project
+> (collective/collective.bpmproxy#12), after which this file should shrink
+> to bpmproxy-specific notes only.
 
 ## Recording architecture
 

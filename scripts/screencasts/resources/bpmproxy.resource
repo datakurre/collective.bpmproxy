@@ -36,6 +36,18 @@ Prepare Fixtures
     END
     End Scratch Context
 
+Set Sharing As Manager
+    [Documentation]    Grant local roles on `url` (a Robot list of
+    ...    {"id", "type", "roles"} dicts) via an unrecorded, privileged
+    ...    context -- for content created mid-take whose URL is only known
+    ...    at record time (e.g. the renovation-project story's case
+    ...    document, shared with the Owner/Inspector after the Contractor
+    ...    creates it).
+    [Arguments]    ${url}    ${entries}    ${username}=manager    ${password}=manager
+    Start Scratch Context    http_credentials=${{ {'username': $username, 'password': $password} }}
+    Set Sharing    ${url}    ${entries}
+    End Scratch Context
+
 Log In To Cockpit
     [Documentation]    Complete the Keycloak OIDC login for Cockpit in an
     ...    unrecorded context, and return its storage_state() for

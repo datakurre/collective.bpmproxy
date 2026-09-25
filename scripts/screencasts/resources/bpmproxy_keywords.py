@@ -93,6 +93,21 @@ def delete_demo_content(paths, base_url=DEFAULT_BASE_URL):
             )
 
 
+def set_sharing(url, entries):
+    """POST a @sharing update -- entries is a list of
+    {"id", "type" ("user"/"group"), "roles": {role: True}} dicts. Used by
+    the renovation-project story to grant the contractor/owner/inspector
+    groups and users access to a case document created at record time
+    (whose URL is not known until the manager's own turn runs)."""
+    response = _page().request.post(
+        f"{url}/@sharing",
+        headers={"Accept": "application/json", "Content-Type": "application/json"},
+        data=json.dumps({"entries": entries}),
+    )
+    if response.status not in (200, 204):
+        raise AssertionError(f"Could not update sharing on {url}: {response.status}")
+
+
 def wait_for_mail(subject, timeout=60, mailpit_url=DEFAULT_MAILPIT_URL):
     """Poll Mailpit's own HTTP API for a message with this Subject -- no
     browser page needed, unlike this module's other keywords."""

@@ -174,8 +174,10 @@ collective.bpmproxy/                      # monorepo root -- NO Python package h
 │           └── META-INF/resources/webjars/operaton/app/...  # The servable copy
 │
 ├── scripts/                              # bootstrap_site.py, bootstrap_renovation_demo.py,
-│   └── uitest/                           #   e2e_smoke.py, e2e_renovation_project.py,
-│                                         #   uitest/ campaign
+│   ├── screencast/                       # Generic screencast engine: RF library, driver
+│   │                                     #   CLI, composer, verifier (see below)
+│   ├── screencasts/                      # Project stories + resources, built on screencast/
+│   └── uitest/                           #   e2e_smoke.py, uitest/ campaign
 │
 ├── examples/                             # BPMN/DMN/form examples + external-task bots
 │   ├── simple-process/ published-lifecycle/ contact-form/ contact-form-bot-py/

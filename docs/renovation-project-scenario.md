@@ -93,24 +93,33 @@ the case-creation process instance are visible.
 6. A case manager closes the Plone case through its `close-case` workflow transition.
 7. The close message reaches the main case process and ends it.
 
-Run the browser smoke test with:
+Run the story with the screencast driver (`PYTHONPATH=scripts`, or from
+inside `make shell`):
 
 ```sh
-playwright-python scripts/scenarios/e2e_renovation_project.py
+python -m screencast run scripts/screencasts/renovation_project.robot
 ```
 
 The recording follows the same conventions as the contact-form and
-review-process scenarios:
+review-process scenarios (see `scripts/screencast/` and
+`scripts/screencasts/resources/bpmproxy.resource`, collective/collective.bpmproxy#8-#10):
 
-- Cockpit is authenticated in an unrecorded context, then recorded first and
-  kept open as the observer for the whole run. Auto-refresh and sequence-flow
-  visualization are enabled before the empty Plone site is recorded.
-- Each persona turn gets its own 1920x1080 recorded context, cursor/click
-  overlay, human-paced interactions, and an eight-second title card.
-- Cockpit enables auto-refresh and sequence-flow visualization, and waits
-  after each actor turn so the state change is visible.
-- The final recording is written as `renovation-project-pip.webm`; timing data
-  and generated title segments are written beside it for later recuts.
+- Cockpit is authenticated in an unrecorded context (`Log In To Cockpit`),
+  then recorded first and kept open as the observer for the whole run.
+  Auto-refresh and sequence-flow visualization are enabled before the empty
+  Plone site is recorded.
+- Each persona turn gets its own 1920x1080 recorded context (`Start Actor
+  Turn`/`End Actor Turn`), cursor/click overlay, human-paced interactions,
+  and a chapter event the composer turns into a title card -- no waiting in
+  the browser for it, unlike the old script's 8s `show_actor_slide()`.
+- Two points reload Cockpit rather than navigate in-app -- the documented
+  exception in docs/AGENTS.md, forcing a refresh past auto-refresh's own
+  polling interval right after a review that can otherwise complete between
+  polls (`Observe    reload=${True}`).
+- `python -m screencast compose` writes the composite as `output.webm` in
+  the take directory; the old hard-coded `final_focus_switch_at = 117.0` is
+  gone -- the composer's default (observer main between turns, unless a
+  `focus` event says otherwise) already does what that constant was for.
 
 The runner does not activate Cockpit's time heat-map. It captures the final
 case in History with the left information-panel sash dragged left so the
@@ -118,28 +127,39 @@ panel remains visible at roughly two thirds of its original width.
 
 ## Artifacts
 
+Written to `var/screencasts/renovation_project/<take>/` (gitignored):
+
 | Artifact | Description |
+| --- | --- |
+| `page@*.webm` | The observer (Cockpit) recording and each actor turn's own clip |
+| `timeline.json` | Schema v2 timeline: observer/actor clips, chapter/focus/hold events |
+| `output.webm` | The composite, actor turns as picture-in-picture over the Cockpit observer |
+| `report.json` / `contact-sheet.png` | `python -m screencast verify`'s findings and contact sheet |
+
+The doc-illustration screenshots below are the exception: the story writes
+them straight to `docs/`, since these specific names are the ones this
+document actually uses.
+
+| Screenshot | Description |
 | --- | --- |
 | `renovation-project-document-added.png` | Contractor's document in the case |
 | `renovation-project-cockpit-parallel-review.png` | Cockpit showing the two review tasks |
 | `renovation-project-closed.png` | Case after the manager closes it |
 | `renovation-project-cockpit-completed.png` | Completed case in Cockpit History |
-| `renovation-project-pip.webm` | Cockpit recording with actor turns as picture-in-picture |
-| `renovation-project-timing.json` | Recorded offsets and title-segment metadata |
 
 ## Verifying a take
 
-The runner's exit status does not verify the video. Check its duration and
-stream properties, then sample the complete recording:
+The story's exit status alone does not verify the video -- `verify` does:
 
 ```sh
-ffprobe -v error -show_entries format=duration \
-  -show_entries stream=width,height,r_frame_rate -of default=noprint_wrappers=1 \
-  docs/renovation-project-pip.webm
-ffmpeg -y -i docs/renovation-project-pip.webm \
-  -vf 'fps=0.3,scale=480:-1,tile=6x5' -frames:v 1 \
-  /tmp/renovation-pip-sheet.png
+python -m screencast compose var/screencasts/renovation_project/<take>/
+python -m screencast verify var/screencasts/renovation_project/<take>/
 ```
+
+`verify` derives its contact-sheet sampling rate from the take's own measured
+duration, so there is no `tile=RxC` rate to hand-tune here -- see
+`scripts/screencast/verify.py`, and `report.json` for what a failing check
+found.
 
 ## Resetting
 

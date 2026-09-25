@@ -184,6 +184,33 @@ def test_a_frame_piercing_selector_resolves_via_frame_locator(tmp_path):
     assert page.filled["iframe >>> body"] == "rich text"
 
 
+def test_select_option_sets_the_value(tmp_path):
+    screencast = library_module.Screencast(take_dir=tmp_path)
+    screencast.start_observer("cockpit", "http://example.test/cockpit")
+    screencast.select_option("#kind", "example-process")
+    page = library_module._SESSION.current_page
+    assert page.filled["#kind"] == "example-process"
+
+
+def test_observe_reload_reloads_instead_of_navigating(tmp_path):
+    screencast = library_module.Screencast(take_dir=tmp_path)
+    screencast.start_observer("cockpit", "http://example.test/cockpit")
+    screencast.observe(url="http://example.test/should-not-navigate", reload=True)
+    page = library_module._SESSION.observer_page
+    assert page.reloaded == 1
+    assert page.url == "http://example.test/cockpit"
+
+
+def test_check_and_uncheck(tmp_path):
+    screencast = library_module.Screencast(take_dir=tmp_path)
+    screencast.start_observer("cockpit", "http://example.test/cockpit")
+    screencast.check("#diagram-enabled")
+    page = library_module._SESSION.current_page
+    assert page.checked["#diagram-enabled"] is True
+    screencast.uncheck("#diagram-enabled")
+    assert page.checked["#diagram-enabled"] is False
+
+
 def test_scratch_context_does_not_touch_the_timeline(tmp_path):
     screencast = library_module.Screencast(take_dir=tmp_path)
     screencast.start_scratch_context("http://example.test/login")

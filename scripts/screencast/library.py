@@ -239,16 +239,22 @@ class Screencast:
         _SESSION.observer_page = None
         _SESSION.current_page = None
 
-    def observe(self, url=None, wait=DEFAULT_OBSERVE_WAIT):
+    def observe(self, url=None, wait=DEFAULT_OBSERVE_WAIT, reload=False):
         """Bring the observer to the front, and refresh it. With `url`, this
         is an in-app route change (`page.goto()`), never `page.reload()`:
         a reload re-bootstraps a client-side app and puts a flash in the
-        middle of the view, where an in-app route change does not."""
+        middle of the view, where an in-app route change does not. Only
+        pass `reload=True` for the documented exception (see
+        docs/AGENTS.md): forcing a refresh past auto-refresh's own polling
+        interval right after a transition that can otherwise complete
+        between intervals -- an in-app route change is still the default."""
         page = _SESSION.observer_page
         if page is None:
             raise FatalError("No observer -- call Start Observer first")
         page.bring_to_front()
-        if url:
+        if reload:
+            page.reload(wait_until="load")
+        elif url:
             page.goto(url, wait_until="load")
         _SESSION.current_page = page
         page.wait_for_timeout(int(float(wait) * 1000))
@@ -514,6 +520,23 @@ class Screencast:
 
     def get_attribute(self, selector, name, index=0):
         return self._locator(selector, index).get_attribute(name)
+
+    def select_option(self, selector, value, index=0):
+        """Select `value` on a `<select>` -- there is no human-paced
+        equivalent for a native select dropdown the way there is for a
+        click or a typed field, so this does not move the mouse first."""
+        self._locator(selector, index).select_option(value)
+        self._page().wait_for_timeout(FILL_SETTLE_MS)
+
+    def check(self, selector, index=0):
+        self.human_move(selector, index)
+        self._locator(selector, index).check()
+        self._page().wait_for_timeout(CLICK_SETTLE_MS)
+
+    def uncheck(self, selector, index=0):
+        self.human_move(selector, index)
+        self._locator(selector, index).uncheck()
+        self._page().wait_for_timeout(CLICK_SETTLE_MS)
 
     def go_to(self, url):
         """Navigate the current page. A thin wrapper over `page.goto()` --

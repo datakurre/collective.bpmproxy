@@ -34,6 +34,15 @@ class FakeLocator:
     def fill(self, value):
         self.page.filled[self.selector] = value
 
+    def select_option(self, value):
+        self.page.filled[self.selector] = value
+
+    def check(self):
+        self.page.checked[self.selector] = True
+
+    def uncheck(self):
+        self.page.checked[self.selector] = False
+
     def press_sequentially(self, text, delay=0):
         self.page.filled[self.selector] = self.page.filled.get(self.selector, "") + text
 
@@ -85,6 +94,7 @@ class FakePage:
         self.mouse = FakeMouse()
         self.clicked = []
         self.filled = {}
+        self.checked = {}
         self.closed = False
         self.video = (
             FakeVideo(f"/tmp/fake-{FakePage._counter}.webm") if record else None
@@ -93,6 +103,9 @@ class FakePage:
 
     def goto(self, url, wait_until="load"):
         self.url = url
+
+    def reload(self, wait_until="load"):
+        self.reloaded = getattr(self, "reloaded", 0) + 1
 
     def on(self, event, handler):
         self._handlers.setdefault(event, []).append(handler)

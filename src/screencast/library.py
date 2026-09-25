@@ -79,9 +79,29 @@ class _Listener:
 
     ROBOT_LISTENER_API_VERSION = 3
 
+    def __init__(self):
+        self._pending_dump_paths = None
+
+    def start_test(self, data, result):
+        self._pending_dump_paths = None
+
     def end_keyword(self, data, result):
-        if result.status == "FAIL":
-            _dump_failure_artifacts(result.name)
+        # Dump immediately, on the *first* failure in this test, while the
+        # failing keyword's own page is still open -- a task's teardown
+        # (e.g. End Actor Turn) can close it before end_test below fires,
+        # which would leave nothing left to screenshot. A keyword retried
+        # inside Wait Until Keyword Succeeds reports FAIL on every failed
+        # attempt even when a later attempt succeeds and the task passes
+        # overall, so only the first attempt's dump is kept as "pending" --
+        # end_test discards it if the task did not, in the end, fail.
+        if result.status == "FAIL" and self._pending_dump_paths is None:
+            self._pending_dump_paths = _dump_failure_artifacts(result.name)
+
+    def end_test(self, data, result):
+        if result.status != "FAIL" and self._pending_dump_paths:
+            for path in self._pending_dump_paths:
+                path.unlink(missing_ok=True)
+        self._pending_dump_paths = None
 
     def close(self):
         if _SESSION.timeline is not None and _SESSION.take_dir is not None:
@@ -91,16 +111,18 @@ class _Listener:
 
 def _dump_failure_artifacts(keyword_name):
     if _SESSION.take_dir is None:
-        return
+        return []
     take_dir = Path(_SESSION.take_dir)
     take_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%H%M%S-%f")
+    written = []
     for index, page in enumerate(list(_SESSION.open_pages)):
         if page.is_closed():
             continue
         prefix = take_dir / f"failure-{stamp}-{index}"
         try:
             page.screenshot(path=str(prefix.with_suffix(".png")), full_page=True)
+            written.append(prefix.with_suffix(".png"))
         except Exception as error:  # noqa: BLE001 -- best-effort diagnostics
             logger.warn(f"Could not screenshot {page.url}: {error}")
         try:
@@ -114,7 +136,9 @@ def _dump_failure_artifacts(keyword_name):
             f"console:\n{console}\n\n"
             f"aria snapshot:\n{snapshot}\n"
         )
+        written.append(prefix.with_suffix(".txt"))
         logger.info(f"Failure artifacts: {prefix}.png, {prefix}.txt")
+    return written
 
 
 def _track_console(page):

@@ -35,10 +35,25 @@ DEFAULT_VIEWPORT = {"width": 1920, "height": 1080}
 DEFAULT_OBSERVE_WAIT = 1.5
 DEFAULT_RETURN_TO_OBSERVER_WAIT = 6.0
 
-# RF BuiltIn keywords whose own success means an earlier failure nested
-# inside them was recovered, not real -- see _Listener.end_keyword. Only
-# the ones actually used by this project's stories/resources today.
-_RETRY_WRAPPER_KEYWORDS = frozenset({"Wait Until Keyword Succeeds"})
+# RF BuiltIn keywords whose own outcome means a failure nested inside them
+# was expected/recovered, not real -- see _Listener._pop_recovery_boundary.
+# Wait Until Keyword Succeeds succeeds once a retry does; the three Run
+# Keyword And ... variants convert a failure into a status they report
+# through their own (always-PASS) result instead of failing themselves.
+# Run Keyword And Continue On Failure is included too, though its own
+# status already mirrors the wrapped keyword's (so in practice this is a
+# no-op for it): a failure it lets the test continue past is still a real
+# failure, not a recovered one, and that's exactly what its FAIL status
+# already signals without any special-casing here.
+_RECOVERING_WRAPPER_KEYWORDS = frozenset(
+    {
+        "Wait Until Keyword Succeeds",
+        "Run Keyword And Ignore Error",
+        "Run Keyword And Return Status",
+        "Run Keyword And Expect Error",
+        "Run Keyword And Continue On Failure",
+    }
+)
 
 
 class _Session:
@@ -89,20 +104,41 @@ class _Listener:
 
     def __init__(self):
         self._pending_dump_paths = None
-        self._retry_wrapper_stack = []
+        self._recovery_boundary_stack = []
 
     def start_test(self, data, result):
         self._pending_dump_paths = None
-        self._retry_wrapper_stack = []
+        self._recovery_boundary_stack = []
+
+    def _push_recovery_boundary(self):
+        # Remember whether a dump was already pending *before* this
+        # recovery boundary (a Wait Until Keyword Succeeds/Run Keyword
+        # And .../TRY block) started -- popping it below only gets to
+        # clear a dump captured strictly during the boundary's own body,
+        # never one that was already sitting there from something earlier
+        # and unrelated.
+        self._recovery_boundary_stack.append(self._pending_dump_paths is not None)
+
+    def _pop_recovery_boundary(self, succeeded):
+        # That pending dump must not block a later, *different* failure in
+        # the same test from getting its own: the common shape here is
+        # Open Task -> Wait For Task polls and fails a few times, then
+        # succeeds, and only then does e.g. Human Click actually fail for
+        # real. Depth alone can't tell "the boundary finally closing" apart
+        # from "some later, unrelated keyword happening to close at the
+        # same nesting depth" (e.g. the [Teardown] right after) -- so watch
+        # for known recovery boundaries directly instead: when one
+        # succeeds having had no dump pending at its own start, whatever
+        # got dumped during its body was recovered/expected, so clear it.
+        had_pending_before = self._recovery_boundary_stack.pop()
+        if succeeded and had_pending_before is False and self._pending_dump_paths:
+            for path in self._pending_dump_paths:
+                path.unlink(missing_ok=True)
+            self._pending_dump_paths = None
 
     def start_keyword(self, data, result):
-        # Remember whether a dump was already pending *before* this retry
-        # wrapper (e.g. Wait Until Keyword Succeeds) started -- its own
-        # closing below only gets to clear a dump captured strictly during
-        # its own retries, never one that was already sitting there from
-        # something earlier and unrelated.
-        if data.name in _RETRY_WRAPPER_KEYWORDS:
-            self._retry_wrapper_stack.append(self._pending_dump_paths is not None)
+        if data.name in _RECOVERING_WRAPPER_KEYWORDS:
+            self._push_recovery_boundary()
 
     def end_keyword(self, data, result):
         # Dump immediately, on the *first* failure in this test, while the
@@ -111,30 +147,25 @@ class _Listener:
         # which would leave nothing left to screenshot. A keyword retried
         # inside Wait Until Keyword Succeeds reports FAIL on every failed
         # attempt even when a later attempt succeeds and the task passes
-        # overall, so only the first attempt's dump is kept as "pending".
-        #
-        # That pending dump must not block a later, *different* failure in
-        # the same test from getting its own: the common shape here is
-        # Open Task -> Wait For Task polls and fails a few times, then
-        # succeeds, and only then does e.g. Human Click actually fail for
-        # real. Depth alone can't tell "the retry wrapper finally closing"
-        # apart from "some later, unrelated keyword happening to close at
-        # the same nesting depth" (e.g. the [Teardown] right after) -- so
-        # watch for the retry wrapper *by name* instead: when it succeeds
-        # having had no dump pending at its own start, whatever got dumped
-        # during its retries was recovered, so clear it.
-        had_pending_before_wrapper = None
-        if data.name in _RETRY_WRAPPER_KEYWORDS:
-            had_pending_before_wrapper = self._retry_wrapper_stack.pop()
-        if result.status == "FAIL":
-            if self._pending_dump_paths is None:
-                self._pending_dump_paths = _dump_failure_artifacts(result.name)
-        elif (
-            had_pending_before_wrapper is False and self._pending_dump_paths is not None
-        ):
-            for path in self._pending_dump_paths:
-                path.unlink(missing_ok=True)
-            self._pending_dump_paths = None
+        # overall, so only the first attempt's dump is kept as "pending",
+        # cleared on a recovery boundary's own success (see
+        # _pop_recovery_boundary) rather than unconditionally here.
+        if data.name in _RECOVERING_WRAPPER_KEYWORDS:
+            self._pop_recovery_boundary(succeeded=result.status != "FAIL")
+        if result.status == "FAIL" and self._pending_dump_paths is None:
+            self._pending_dump_paths = _dump_failure_artifacts(result.name)
+
+    def start_try(self, data, result):
+        # A TRY/EXCEPT structure isn't a keyword call at all, so it can't
+        # be matched by name -- RF calls this once per structure, same
+        # shape as a recovering wrapper keyword: an EXCEPT branch catching
+        # the TRY body's failure makes the whole structure's own status
+        # PASS, exactly like Run Keyword And Ignore Error converting a
+        # failure into a status it reports instead of failing itself.
+        self._push_recovery_boundary()
+
+    def end_try(self, data, result):
+        self._pop_recovery_boundary(succeeded=result.status != "FAIL")
 
     def end_test(self, data, result):
         if result.status != "FAIL" and self._pending_dump_paths:

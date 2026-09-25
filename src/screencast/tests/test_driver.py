@@ -217,6 +217,93 @@ def test_a_later_genuine_failure_gets_its_own_dump_not_a_recovered_ones(tmp_path
     assert "keyword: Should Be Equal" in dumps[0].read_text()
 
 
+def _story_with_recovery_boundary(snippet):
+    return (
+        "*** Settings ***\n"
+        "Library    screencast.Screencast    take_dir=${TAKE_DIR}    record=${RECORD}\n"
+        "\n"
+        "*** Test Cases ***\n"
+        "Recovers Then Really Fails\n"
+        "    Start Observer    observer    http://example.test\n"
+        f"{snippet}"
+        "    Should Be Equal    a    b\n"
+        "    [Teardown]    End Observer\n"
+    )
+
+
+RECOVERY_BOUNDARY_SNIPPETS = [
+    (
+        "Run Keyword And Ignore Error",
+        "    Run Keyword And Ignore Error    Fail    not really\n",
+    ),
+    (
+        "Run Keyword And Return Status",
+        "    Run Keyword And Return Status    Fail    not really\n",
+    ),
+    (
+        "Run Keyword And Expect Error",
+        "    Run Keyword And Expect Error    *    Fail    not really\n",
+    ),
+    (
+        "TRY/EXCEPT",
+        "    TRY\n"
+        "        Fail    not really\n"
+        "    EXCEPT    AS    ${err}\n"
+        "        Log    Caught: ${err}\n"
+        "    END\n",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "name,snippet",
+    RECOVERY_BOUNDARY_SNIPPETS,
+    ids=[n for n, _ in RECOVERY_BOUNDARY_SNIPPETS],
+)
+def test_other_recovery_boundaries_also_free_the_dump_slot(tmp_path, name, snippet):
+    """(regression, #18) The dump-slot recovery fix (PR #14) only watched
+    Wait Until Keyword Succeeds by name. Run Keyword And Ignore Error/
+    Return Status/Expect Error convert a failure into a status they report
+    through their own (always-PASS) result instead of failing themselves,
+    and a TRY/EXCEPT structure isn't a keyword call at all so it can't be
+    matched by name either -- each needed its own recovery-boundary
+    tracking (_RECOVERING_WRAPPER_KEYWORDS / start_try/end_try) or a
+    failure inside one would take the task's single dump slot and leave a
+    later genuine failure with none of its own."""
+    take_dir = tmp_path / "take"
+    story = write_story(tmp_path, _story_with_recovery_boundary(snippet))
+    code, _ = driver.run(story, take_dir=take_dir, quiet=True)
+    assert code != 0
+
+    dumps = list(take_dir.glob("failure-*.txt"))
+    assert len(dumps) == 1, f"{name}: expected exactly one dump, got {len(dumps)}"
+    assert "keyword: Should Be Equal" in dumps[0].read_text(), name
+
+
+RUN_KEYWORD_AND_CONTINUE_ON_FAILURE_STORY = _story_with_recovery_boundary(
+    "    Run Keyword And Continue On Failure    Fail    not really\n"
+)
+
+
+def test_run_keyword_and_continue_on_failure_does_not_wrongly_clear_a_real_failure(
+    tmp_path,
+):
+    """(regression, #18) Run Keyword And Continue On Failure lets the test
+    continue past a failure, but is still itself marked FAILED (unlike
+    Ignore Error/Return Status/Expect Error, which always report PASS) --
+    its own status already mirrors the wrapped keyword's, so including it
+    in _RECOVERING_WRAPPER_KEYWORDS must not cause a genuine failure
+    inside it to be treated as recovered."""
+    take_dir = tmp_path / "take"
+    story = write_story(tmp_path, RUN_KEYWORD_AND_CONTINUE_ON_FAILURE_STORY)
+    code, _ = driver.run(story, take_dir=take_dir, quiet=True)
+    assert code != 0
+
+    dumps = list(take_dir.glob("failure-*.txt"))
+    assert len(dumps) == 1
+    assert "keyword: Fail" in dumps[0].read_text()
+
+
 def test_summarize_failures_reports_all_tasks_passed(tmp_path):
     story = write_story(tmp_path, PASSING_STORY)
     _, output = driver.run(story, take_dir=tmp_path / "take", quiet=True)

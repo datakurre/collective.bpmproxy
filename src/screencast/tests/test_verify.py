@@ -252,6 +252,13 @@ def test_verify_budgets_the_recorded_return_to_observer_wait(tmp_path):
     compose(take_dir)
     pre_fix_report = verify(take_dir)
     assert any(f["check"] == "dead_air" for f in pre_fix_report["findings"])
+    # dead_air is a warning (PR #14 follow-up review, datakurre/
+    # collective.bpmproxy#15): freezedetect can't see cursor-only motion at
+    # 1080p, so it false-positives on ordinary real turns -- reported, but
+    # must not fail ok/the exit code on its own.
+    dead_air = next(f for f in pre_fix_report["findings"] if f["check"] == "dead_air")
+    assert dead_air["severity"] == "warning"
+    assert pre_fix_report["ok"] is True
 
     timeline.add_event(
         {

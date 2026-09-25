@@ -123,6 +123,8 @@ Wrap Up In Cockpit History
     Wait For Workflow State    ${DOC_URL}    Published
     Show Completed Instance In History    ${PROCESS_KEY}
     Take Screenshot    ${DOCS_DIR}/review-process-cockpit-completed.png
-    Go To    ${DOC_URL}
-    Take Screenshot    ${DOCS_DIR}/review-process-published.png
     End Observer
+    Start Scratch Context    ${DOC_URL}
+    ...    http_credentials=${{ {'username': 'manager', 'password': 'manager'} }}
+    Take Screenshot    ${DOCS_DIR}/review-process-published.png
+    End Scratch Context

@@ -19,10 +19,16 @@ Checks:
   ever freezes on purpose). More frozen time than that budget plus
   DEAD_AIR_TOLERANCE means something outside a declared hold produced
   dead air.
-- **Blank frames**: `blackdetect`, tuned to near-pure black
-  (`pix_th=0.02`) rather than the default's dark-theme-triggering 10%
-  luma threshold, since this project's own title cards are a dark navy
-  that would otherwise false-positive on every take.
+- **Blank frames**: `blackdetect` on the composed output, tuned to
+  near-pure black (`pix_th=0.02`) rather than the default's
+  dark-theme-triggering 10% luma threshold, since this project's own
+  title cards are a dark navy that would otherwise false-positive on
+  every take -- plus a uniform-color sample (the same technique as
+  "Empty insets", below, applied to each actor clip's own opening moment
+  instead of the observer's) since a blank turn-opening frame is just as
+  often a plain white Plone loading page (or any other flat color a
+  missing font renders as) as it is black, and blackdetect alone would
+  never see it.
 - **Empty insets**: for each actor turn, one raw grayscale sample from the
   observer's own footage at the turn's real-time midpoint (the frame that
   becomes that turn's inset). A near-zero luma range means a blank/dead
@@ -44,6 +50,11 @@ import subprocess
 DURATION_TOLERANCE = 1.5  # seconds; see screencast.timeline.OVERLAP_TOLERANCE
 DEAD_AIR_TOLERANCE = 2.0  # seconds of unaccounted freeze before it's a finding
 BLANK_LUMA_RANGE = 4  # max:min luma spread below this counts as "uniform"
+# Sampling exactly at a turn's start boundary risks a compressed keyframe
+# seek landing just before the composer's hard cut there and reading the
+# previous segment's content instead -- a small offset into the turn avoids
+# that while still sampling what the turn visibly opens on.
+TURN_OPEN_SAMPLE_OFFSET = 0.15
 EXPECTED_SIZE = (1920, 1080)
 EXPECTED_FPS = 25.0
 
@@ -285,6 +296,34 @@ def verify(take_dir, output_video=None, contact_sheet=None, rows=6, cols=5):
                 ),
             }
         )
+
+    # blackdetect only catches near-pure-black -- a turn's own opening frame
+    # can just as easily be a plain white Plone loading page, or any other
+    # flat color a missing font renders as. Sample each actor clip's own
+    # opening moment directly, the same uniform-color technique empty_inset
+    # below already uses on the observer's footage: the composed output
+    # itself is a poor sampling target here, since every turn's segment
+    # overlays the observer as a bordered inset, and that border alone
+    # keeps the composited frame's luma range well above BLANK_LUMA_RANGE
+    # regardless of whether the actor's own content is blank.
+    for clip in timeline.actors:
+        clip_path = take_dir / clip["video"]
+        clip_duration = ffprobe_duration(clip_path)
+        at = min(TURN_OPEN_SAMPLE_OFFSET, max(0.0, clip_duration - 0.05))
+        luma_range = frame_luma_range(clip_path, at)
+        if luma_range < BLANK_LUMA_RANGE:
+            findings.append(
+                {
+                    "check": "blank_frame",
+                    "severity": "error",
+                    "message": (
+                        f"{clip['actor']!r}'s turn ({clip['video']}) opens "
+                        f"at {at:.2f}s on a near-uniform color frame (luma "
+                        f"range {luma_range}) -- also what missing fonts "
+                        "look like"
+                    ),
+                }
+            )
 
     for start_event in timeline.events_of("turn_start"):
         end_event = next(

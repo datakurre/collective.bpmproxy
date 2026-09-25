@@ -214,6 +214,39 @@ def test_verify_flags_a_blank_composed_output(tmp_path):
 
 
 @requires_ffmpeg
+def test_verify_flags_a_white_turn_opening_frame_blackdetect_misses(tmp_path):
+    """(regression, PR #14 review finding #10) blackdetect only catches
+    near-black frames -- a turn's own opening frame is just as likely to be
+    a plain white Plone loading page (or any other flat color a missing
+    font renders as), which blackdetect cannot see at all. The "author"
+    clip is a flat white color throughout; the observer stays animated,
+    proving this check samples the actor's own clip directly rather than
+    the composed output (whose every turn segment overlays a bordered
+    observer inset that would otherwise mask a blank main view)."""
+    take_dir = tmp_path / "take"
+    take_dir.mkdir(parents=True, exist_ok=True)
+    make_animated_clip(take_dir / "observer.webm", 4.0)
+    make_clip(take_dir / "author.webm", 1.5, color="white")
+    timeline = Timeline.new("observer.webm")
+    timeline.add_actor_clip("author", "author.webm", offset=1.0, duration=1.5)
+    timeline.add_event({"type": "turn_start", "time": 1.0, "actor": "author"})
+    timeline.add_event({"type": "turn_end", "time": 2.5, "actor": "author"})
+    timeline.save(take_dir / "timeline.json")
+    output = compose(take_dir)
+
+    # blackdetect itself genuinely finds nothing here -- confirms this is
+    # the new uniform-color check catching it, not a coincidental overlap.
+    assert detect_black_intervals(output) == []
+
+    report = verify(take_dir)
+    assert not report["ok"]
+    assert any(
+        f["check"] == "blank_frame" and "author" in f["message"]
+        for f in report["findings"]
+    )
+
+
+@requires_ffmpeg
 def test_verify_flags_wrong_frame_size(tmp_path):
     take_dir = tmp_path / "take"
     make_take(take_dir, with_turn=False)

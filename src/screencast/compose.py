@@ -385,6 +385,12 @@ def compose(take_dir, output=None):
         for hold in hold_events:
             if abs(hold["time"] - t) >= 1e-6:
                 continue
+            if hold.get("recorded"):
+                # Real elapsed recording time (e.g. the return-to-observer
+                # wait), not a synthetic freeze to insert -- that stretch is
+                # already ordinary observer footage the boundary loop below
+                # renders on its own; a segment emitted here would double it.
+                continue
             view, inset_turn_id, _scale, _margin, _border = _view_at(
                 max(0.0, t - 1e-6), focus_events, turns
             )

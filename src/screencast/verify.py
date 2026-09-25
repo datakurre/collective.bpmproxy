@@ -16,9 +16,11 @@ Checks:
 - **Dead air**: `freezedetect` finds frozen runs; their total is compared
   against the "expected freeze budget" (the sum of chapter and hold
   durations -- title cards and holds are the only segments the composer
-  ever freezes on purpose). More frozen time than that budget plus
-  DEAD_AIR_TOLERANCE means something outside a declared hold produced
-  dead air.
+  ever freezes on purpose, plus a "recorded" hold's own real elapsed wait,
+  e.g. the return-to-observer pause after a turn -- see library.py's
+  end_actor_turn and predicted_duration()'s docstring). More frozen time
+  than that budget plus DEAD_AIR_TOLERANCE means something outside a
+  declared hold produced dead air.
 - **Blank frames**: `blackdetect` on the composed output, tuned to
   near-pure black (`pix_th=0.02`) rather than the default's
   dark-theme-triggering 10% luma threshold, since this project's own
@@ -204,9 +206,15 @@ def predicted_duration(timeline, observer_duration):
     """What the composer's output duration should be: the observer's own
     measured length, plus every chapter/hold duration it inserts (see
     screencast.compose's module docstring -- inserted segments never
-    consume recorded footage, they only add to the output)."""
+    consume recorded footage, they only add to the output). A "recorded"
+    hold (e.g. the return-to-observer wait, see library.py's
+    end_actor_turn) is excluded: the composer never inserts a synthetic
+    freeze for it, since that time is already real, un-trimmed observer
+    footage -- counting it here would overshoot the actual output length."""
     inserted = sum(e["duration"] for e in timeline.events_of("chapter"))
-    inserted += sum(e["duration"] for e in timeline.events_of("hold"))
+    inserted += sum(
+        e["duration"] for e in timeline.events_of("hold") if not e.get("recorded")
+    )
     return observer_duration + inserted
 
 

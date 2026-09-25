@@ -140,6 +140,34 @@ def test_end_actor_turn_returns_to_observer_with_the_longer_wait(tmp_path, monke
     assert waits == [int(library_module.DEFAULT_RETURN_TO_OBSERVER_WAIT * 1000)]
 
 
+def test_end_actor_turn_records_the_return_wait_as_a_recorded_hold(tmp_path):
+    """(regression, PR #14 follow-up review) The return-to-observer wait is
+    real elapsed time in the observer's own recording, not a synthetic
+    freeze -- recording it as a "recorded" hold lets verify's dead_air
+    check budget for it without the composer double-freezing already-real
+    footage (see compose.py's emit_holds_at, verify.py's
+    predicted_duration)."""
+    screencast = library_module.Screencast(take_dir=tmp_path)
+    screencast.start_observer("cockpit", "http://example.test/cockpit")
+    screencast.start_actor_turn("author")
+    screencast.end_actor_turn()
+
+    holds = library_module._SESSION.timeline.events_of("hold")
+    assert len(holds) == 1
+    assert holds[0]["recorded"] is True
+    assert holds[0]["duration"] == library_module.DEFAULT_RETURN_TO_OBSERVER_WAIT
+    assert holds[0]["view"] == "observer"
+
+
+def test_end_actor_turn_without_return_to_observer_records_no_hold(tmp_path):
+    screencast = library_module.Screencast(take_dir=tmp_path)
+    screencast.start_observer("cockpit", "http://example.test/cockpit")
+    screencast.start_actor_turn("author")
+    screencast.end_actor_turn(return_to_observer=False)
+
+    assert library_module._SESSION.timeline.events_of("hold") == []
+
+
 def test_end_actor_turn_without_start_raises(tmp_path):
     screencast = library_module.Screencast(take_dir=tmp_path)
     screencast.start_observer("cockpit", "http://example.test/cockpit")

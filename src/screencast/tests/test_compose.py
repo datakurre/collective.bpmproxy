@@ -147,6 +147,26 @@ def test_compose_with_chapter_and_hold_extends_output_duration(tmp_path):
 
 
 @requires_ffmpeg
+def test_compose_does_not_extend_output_for_a_recorded_hold(tmp_path):
+    """(regression, PR #14 follow-up review) A "recorded" hold marks real
+    elapsed recording time (e.g. the return-to-observer wait) -- unlike an
+    ordinary Hold, the composer must not insert an extra synthetic freeze
+    for it, since that time is already part of the observer's own footage."""
+    take_dir = tmp_path / "take"
+    take_dir.mkdir()
+    make_clip(take_dir / "observer.webm", 5.0)
+
+    timeline = Timeline.new("observer.webm")
+    timeline.add_event({"type": "hold", "time": 3.0, "duration": 1.5, "recorded": True})
+    timeline.save(take_dir / "timeline.json")
+
+    output = compose(take_dir)
+    # No inserted title card, no synthetic freeze -- just the 5.0s of real
+    # observer footage the "recorded" hold's own window is already part of.
+    assert ffprobe_duration(output) == pytest.approx(5.0, abs=0.5)
+
+
+@requires_ffmpeg
 def test_compose_is_reproducible_from_the_same_timeline(tmp_path):
     """A human re-cutting a take by editing focus/hold events and
     re-running the composer needs no re-recording -- exercised here by

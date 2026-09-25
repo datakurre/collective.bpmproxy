@@ -138,6 +138,51 @@ def make_animated_clip(path, duration, color="blue"):
     )
 
 
+def make_freeze_then_move_clip(path, freeze_at, freeze_duration, total_duration):
+    """Animated, then genuinely static for `freeze_duration`, then animated
+    again -- simulates an observer that really does hold still for a real
+    elapsed wait (e.g. the return-to-observer pause after a turn), as
+    opposed to make_animated_clip()'s constant motion throughout."""
+    tail = max(total_duration - freeze_at - freeze_duration, 0.1)
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            f"color=c=blue:s=320x180:d={freeze_at}:r=25",
+            "-f",
+            "lavfi",
+            "-i",
+            f"color=c=blue:s=320x180:d={freeze_duration}:r=25",
+            "-f",
+            "lavfi",
+            "-i",
+            f"color=c=blue:s=320x180:d={tail}:r=25",
+            "-filter_complex",
+            "[0:v]noise=alls=40:allf=t+u[a];[2:v]noise=alls=40:allf=t+u[c];"
+            "[a][1:v][c]concat=n=3:v=1:a=0[out]",
+            "-map",
+            "[out]",
+            "-c:v",
+            "libvpx",
+            "-deadline",
+            "good",
+            "-cpu-used",
+            "5",
+            "-crf",
+            "20",
+            "-b:v",
+            "4M",
+            str(path),
+        ],
+        check=True,
+    )
+
+
 def make_take(take_dir, observer_duration=4.0, with_turn=True):
     take_dir.mkdir(parents=True, exist_ok=True)
     make_animated_clip(take_dir / "observer.webm", observer_duration)
@@ -166,6 +211,63 @@ def test_predicted_duration_adds_chapter_and_hold_durations(tmp_path):
     )
     timeline.add_event({"type": "hold", "time": 1.0, "duration": 2.0})
     assert predicted_duration(timeline, observer_duration=5.0) == 10.0
+
+
+@requires_ffmpeg
+def test_predicted_duration_excludes_a_recorded_hold(tmp_path):
+    """(regression, PR #14 follow-up review) A "recorded" hold (the
+    return-to-observer wait) is real elapsed time already inside the
+    observer's own footage -- the composer never inserts a synthetic
+    freeze for it, so predicted_duration must not add it either, or
+    verify's duration check would fail a perfectly healthy take."""
+    timeline = Timeline.new("observer.webm")
+    timeline.add_event({"type": "hold", "time": 1.0, "duration": 2.0})
+    timeline.add_event({"type": "hold", "time": 4.0, "duration": 6.0, "recorded": True})
+    assert predicted_duration(timeline, observer_duration=5.0) == 7.0
+
+
+@requires_ffmpeg
+def test_verify_budgets_the_recorded_return_to_observer_wait(tmp_path):
+    """(regression, PR #14 follow-up review, reproduced) A real
+    return-to-observer wait freezes the observer for real: 6s of genuinely
+    static footage right after a turn ends (the reviewer's own real-Chromium
+    repro). Confirms both that this exact shape fails without the
+    "recorded" hold (pre-fix simulation) and passes with it."""
+    take_dir = tmp_path / "take"
+    take_dir.mkdir(parents=True, exist_ok=True)
+    make_freeze_then_move_clip(
+        take_dir / "observer.webm",
+        freeze_at=3.0,
+        freeze_duration=6.0,
+        total_duration=10.0,
+    )
+    make_animated_clip(take_dir / "author.webm", 2.0)
+
+    timeline = Timeline.new("observer.webm")
+    timeline.add_actor_clip("author", "author.webm", offset=1.0, duration=2.0)
+    timeline.add_event({"type": "turn_start", "time": 1.0, "actor": "author"})
+    timeline.add_event({"type": "turn_end", "time": 3.0, "actor": "author"})
+    timeline.save(take_dir / "timeline.json")  # no hold yet: pre-fix shape
+
+    compose(take_dir)
+    pre_fix_report = verify(take_dir)
+    assert any(f["check"] == "dead_air" for f in pre_fix_report["findings"])
+
+    timeline.add_event(
+        {
+            "type": "hold",
+            "time": 3.0,
+            "duration": 6.0,
+            "view": "observer",
+            "recorded": True,
+        }
+    )
+    timeline.save(take_dir / "timeline.json")
+
+    report = verify(take_dir)
+    assert not any(f["check"] == "dead_air" for f in report["findings"]), report[
+        "findings"
+    ]
 
 
 @requires_ffmpeg

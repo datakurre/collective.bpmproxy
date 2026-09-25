@@ -8,6 +8,7 @@ from screencast.timeline import Timeline
 from screencast.verify import detect_black_intervals
 from screencast.verify import detect_freezes
 from screencast.verify import frame_luma_range
+from screencast.verify import parse_vtt_cue_times
 from screencast.verify import predicted_duration
 from screencast.verify import verify
 import pytest
@@ -375,3 +376,71 @@ def test_verify_flags_duration_mismatch(tmp_path):
     report = verify(take_dir)
     assert not report["ok"]
     assert any(f["check"] == "duration" for f in report["findings"])
+
+
+def test_parse_vtt_cue_times_reads_start_and_end_seconds(tmp_path):
+    vtt_path = tmp_path / "output.vtt"
+    vtt_path.write_text(
+        "WEBVTT\n\n1\n00:00:01.000 --> 00:00:03.500\nFirst\n\n"
+        "2\n00:01:02.250 --> 00:01:04.000\nSecond\n"
+    )
+    assert parse_vtt_cue_times(vtt_path) == [(1.0, 3.5), (62.25, 64.0)]
+
+
+@requires_ffmpeg
+def test_verify_flags_a_caption_event_with_no_composed_vtt(tmp_path):
+    """A caption on the timeline, but compose() either never ran again
+    after it was added, or (hypothetically) failed to write the sidecar --
+    either way this must not pass silently."""
+    take_dir = tmp_path / "take"
+    make_take(take_dir, with_turn=False)
+    timeline = Timeline.load(take_dir / "timeline.json")
+    timeline.add_event({"type": "caption", "time": 0.5, "text": "Hi", "duration": 1.0})
+    timeline.save(take_dir / "timeline.json")
+    output = compose(take_dir)
+    output.with_suffix(".vtt").unlink(missing_ok=True)
+
+    report = verify(take_dir)
+    assert not report["ok"]
+    assert any(f["check"] == "captions" for f in report["findings"])
+
+
+@requires_ffmpeg
+def test_verify_flags_a_caption_cue_past_the_outputs_own_duration(tmp_path):
+    """(regression) A cue that was never correctly mapped past an inserted
+    title card/hold would run past where the composed output actually
+    ends -- this is what that looks like on disk, independent of whether
+    compose() itself has a mapping bug."""
+    take_dir = tmp_path / "take"
+    make_take(take_dir, with_turn=False)
+    output = compose(take_dir)
+
+    from screencast.compose import ffprobe_duration
+
+    duration = ffprobe_duration(output)
+    output.with_suffix(".vtt").write_text(
+        "WEBVTT\n\n1\n00:00:00.000 --> " + f"00:00:{duration + 5.0:06.3f}\nToo long\n"
+    )
+    timeline = Timeline.load(take_dir / "timeline.json")
+    timeline.add_event(
+        {"type": "caption", "time": 0.0, "text": "Too long", "duration": 5.0}
+    )
+    timeline.save(take_dir / "timeline.json")
+
+    report = verify(take_dir)
+    assert not report["ok"]
+    assert any(f["check"] == "captions" for f in report["findings"])
+
+
+@requires_ffmpeg
+def test_verify_passes_a_take_with_a_correctly_mapped_caption(tmp_path):
+    take_dir = tmp_path / "take"
+    make_take(take_dir, with_turn=False)
+    timeline = Timeline.load(take_dir / "timeline.json")
+    timeline.add_event({"type": "caption", "time": 0.5, "text": "Hi", "duration": 1.0})
+    timeline.save(take_dir / "timeline.json")
+    compose(take_dir)
+
+    report = verify(take_dir)
+    assert report["ok"], report["findings"]
+    assert not any(f["check"] == "captions" for f in report["findings"])

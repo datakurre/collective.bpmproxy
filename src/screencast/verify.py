@@ -40,6 +40,12 @@ Checks:
   observer's own footage at the turn's real-time midpoint (the frame that
   becomes that turn's inset). A near-zero luma range means a blank/dead
   inset -- also what missing fonts look like, per the browser skill.
+- **Captions**: only when the timeline has at least one `caption` event
+  (see library.py's `Caption` keyword and compose.py's `write_captions_vtt`).
+  Fails if `compose()` should have written a WebVTT sidecar but didn't, or
+  if any cue in it ends after the composed output's own measured duration
+  -- a caption time that was never correctly mapped past an inserted title
+  card/hold would show this way.
 
 Returns a JSON-serializable report (`{"ok": bool, "findings": [...],
 ...}`); `main()`/the CLI also write it to `report.json` and the contact
@@ -127,6 +133,23 @@ _FREEZE_DURATION_RE = re.compile(r"freeze_duration:\s*([\d.]+)")
 _BLACK_RE = re.compile(
     r"black_start:\s*([\d.]+)\s+black_end:\s*([\d.]+)\s+black_duration:\s*([\d.]+)"
 )
+_VTT_CUE_RE = re.compile(
+    r"(\d+):(\d+):(\d+(?:\.\d+)?)\s*-->\s*(\d+):(\d+):(\d+(?:\.\d+)?)"
+)
+
+
+def parse_vtt_cue_times(vtt_path):
+    """`[(start_seconds, end_seconds), ...]` for every cue in a WebVTT
+    file, in file order -- just the timestamp lines, ignoring cue
+    identifiers/text."""
+    text = Path(vtt_path).read_text()
+    cues = []
+    for match in _VTT_CUE_RE.finditer(text):
+        sh, sm, ss, eh, em, es = match.groups()
+        start = int(sh) * 3600 + int(sm) * 60 + float(ss)
+        end = int(eh) * 3600 + int(em) * 60 + float(es)
+        cues.append((start, end))
+    return cues
 
 
 def detect_freezes(video, noise_db=-30, min_duration=1.0):
@@ -377,6 +400,35 @@ def verify(take_dir, output_video=None, contact_sheet=None, rows=6, cols=5):
                     ),
                 }
             )
+
+    caption_events = timeline.events_of("caption")
+    if caption_events:
+        vtt_path = output_video.with_suffix(".vtt")
+        if not vtt_path.exists():
+            findings.append(
+                {
+                    "check": "captions",
+                    "severity": "error",
+                    "message": (
+                        f"{len(caption_events)} caption event(s) on the "
+                        f"timeline, but no {vtt_path.name} was composed"
+                    ),
+                }
+            )
+        else:
+            for start, end in parse_vtt_cue_times(vtt_path):
+                if end > actual_duration + DURATION_TOLERANCE:
+                    findings.append(
+                        {
+                            "check": "captions",
+                            "severity": "error",
+                            "message": (
+                                f"Caption cue {start:.2f}s-{end:.2f}s ends "
+                                f"after the output's own {actual_duration:.2f}s "
+                                "duration"
+                            ),
+                        }
+                    )
 
     sheet_path = (
         Path(contact_sheet) if contact_sheet else take_dir / "contact-sheet.png"

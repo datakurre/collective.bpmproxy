@@ -24,6 +24,10 @@ turn_start/turn_end/focus/chapter/hold event boundary:
   timestamp the chapter event fired at.
 - A `hold` event inserts a frozen segment -- both main and inset held at
   their frame at that instant -- for its `duration`, before continuing.
+- A `caption` event doesn't affect the video at all; if there is at least
+  one, `compose()` writes a `output.vtt` WebVTT sidecar alongside the
+  output, with each cue's start mapped from its raw (observer-clock) time
+  to its actual position in the output (see `_output_time()`).
 
 Inset scale/margin/border come from the focus event in effect (defaults:
 0.4, 24px margin, 3px border, from the timeline schema).
@@ -48,6 +52,7 @@ DEFAULT_SCALE = 0.4
 DEFAULT_MARGIN = 24
 DEFAULT_BORDER = 3
 DEFAULT_BORDER_COLOR = "0x1f2937"
+DEFAULT_CAPTION_DURATION = 4.0
 FPS = 25
 VIDEO_SIZE = "1920x1080"
 
@@ -203,6 +208,52 @@ def _view_at(t, focus_events, turns, tolerance=1e-6):
     )
 
 
+def _output_time(raw_time, chapter_events, hold_events):
+    """Map `raw_time` (observer-clock, the same clock every timeline event
+    uses) to its position in the composed output: `raw_time` itself, plus
+    the duration of every chapter/hold segment the composer actually
+    inserts at or before it (title cards, and a non-"recorded" hold's
+    synthetic freeze -- a "recorded" hold adds nothing, since no segment
+    is inserted for it; see predicted_duration()'s own docstring for why)."""
+    inserted = sum(e["duration"] for e in chapter_events if e["time"] <= raw_time)
+    inserted += sum(
+        e["duration"]
+        for e in hold_events
+        if e["time"] <= raw_time and not e.get("recorded")
+    )
+    return raw_time + inserted
+
+
+def _format_vtt_timestamp(seconds):
+    seconds = max(0.0, seconds)
+    hours, remainder = divmod(seconds, 3600)
+    minutes, remainder = divmod(remainder, 60)
+    return f"{int(hours):02d}:{int(minutes):02d}:{remainder:06.3f}"
+
+
+def write_captions_vtt(vtt_path, caption_events, chapter_events, hold_events):
+    """Write a WebVTT sidecar for `caption_events` (schema v2's optional
+    "caption" event type) at `vtt_path`, mapping each one's raw time to
+    its actual position in the composed output via `_output_time()`.
+    `duration` shifts the cue's start the same way but is not itself
+    stretched by an insertion that happens to fall *inside* it -- a
+    caption is expected to describe one continuous stretch of real
+    footage, not straddle a title card or hold."""
+    lines = ["WEBVTT", ""]
+    for index, event in enumerate(
+        sorted(caption_events, key=lambda e: e["time"]), start=1
+    ):
+        start = _output_time(event["time"], chapter_events, hold_events)
+        end = start + float(event.get("duration", DEFAULT_CAPTION_DURATION))
+        lines.append(str(index))
+        lines.append(f"{_format_vtt_timestamp(start)} --> {_format_vtt_timestamp(end)}")
+        lines.append(event["text"])
+        lines.append("")
+    vtt_path = Path(vtt_path)
+    vtt_path.write_text("\n".join(lines))
+    return vtt_path
+
+
 def compose(take_dir, output=None):
     take_dir = Path(take_dir)
     timeline = Timeline.load(take_dir / "timeline.json")
@@ -276,6 +327,10 @@ def compose(take_dir, output=None):
     )
     hold_events = sorted(
         (dict(e, time=clamp(e["time"])) for e in timeline.events_of("hold")),
+        key=lambda e: e["time"],
+    )
+    caption_events = sorted(
+        (dict(e, time=clamp(e["time"])) for e in timeline.events_of("caption")),
         key=lambda e: e["time"],
     )
     turns = [
@@ -476,4 +531,10 @@ def compose(take_dir, output=None):
         output,
         capture=False,
     )
+
+    if caption_events:
+        write_captions_vtt(
+            output.with_suffix(".vtt"), caption_events, chapter_events, hold_events
+        )
+
     return output

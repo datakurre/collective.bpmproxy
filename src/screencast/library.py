@@ -34,6 +34,7 @@ import time
 DEFAULT_VIEWPORT = {"width": 1920, "height": 1080}
 DEFAULT_OBSERVE_WAIT = 1.5
 DEFAULT_RETURN_TO_OBSERVER_WAIT = 6.0
+DEFAULT_CAPTION_DURATION = 4.0
 
 # RF BuiltIn keywords whose own outcome means a failure nested inside them
 # was expected/recovered, not real -- see _Listener._pop_recovery_boundary.
@@ -636,6 +637,25 @@ class Screencast:
                 "time": _SESSION.elapsed(),
                 "duration": float(duration),
                 "view": view,
+            }
+        )
+        _save_timeline()
+
+    def caption(self, text, duration=DEFAULT_CAPTION_DURATION):
+        """Record a caption event at the current (raw, observer-clock)
+        moment. `compose()` writes every caption into a WebVTT sidecar
+        (`output.vtt`, next to the composed output) if there is at least
+        one, mapping this raw time to the cue's actual position in the
+        composed output -- accounting for every title card/hold inserted
+        before it, the same way the composer's own segment loop does."""
+        if _SESSION.timeline is None:
+            raise FatalError("No timeline -- call Start Observer first")
+        _SESSION.timeline.add_event(
+            {
+                "type": "caption",
+                "time": _SESSION.elapsed(),
+                "text": text,
+                "duration": float(duration),
             }
         )
         _save_timeline()

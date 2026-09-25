@@ -8,11 +8,14 @@ via devenv.nix's ffmpeg-headless package; a plain checkout may not)."""
 
 from pathlib import Path
 from screencast import compose as compose_module
+from screencast.compose import _output_time
 from screencast.compose import _view_at
 from screencast.compose import compose
 from screencast.compose import ComposeError
 from screencast.compose import ffprobe_duration
+from screencast.compose import write_captions_vtt
 from screencast.timeline import Timeline
+from screencast.verify import parse_vtt_cue_times
 import pytest
 import shutil
 import subprocess
@@ -298,3 +301,88 @@ def test_compose_refuses_unknown_timeline_version(tmp_path):
 
     with pytest.raises(Exception):  # noqa: B017 -- TimelineError from Timeline.load
         compose(take_dir)
+
+
+def test_output_time_is_unchanged_with_nothing_inserted_before_it():
+    assert _output_time(5.0, [], []) == pytest.approx(5.0)
+
+
+def test_output_time_accounts_for_a_chapter_inserted_before_it():
+    chapters = [{"time": 1.0, "duration": 2.0}]
+    # A caption at raw time 5.0 sits after the title card, so the card's
+    # whole 2.0s is added to where it actually lands in the output.
+    assert _output_time(5.0, chapters, []) == pytest.approx(7.0)
+
+
+def test_output_time_ignores_a_chapter_that_comes_after_it():
+    chapters = [{"time": 6.0, "duration": 2.0}]
+    assert _output_time(5.0, chapters, []) == pytest.approx(5.0)
+
+
+def test_output_time_ignores_a_recorded_hold():
+    """(mirrors predicted_duration()'s own "recorded" hold exclusion) A
+    "recorded" hold adds no synthetic freeze segment, so it must not shift
+    a caption's mapped time either."""
+    holds = [{"time": 1.0, "duration": 3.0, "recorded": True}]
+    assert _output_time(5.0, [], holds) == pytest.approx(5.0)
+
+
+def test_write_captions_vtt_orders_cues_by_time_regardless_of_input_order(tmp_path):
+    captions = [
+        {"time": 5.0, "text": "second", "duration": 2.0},
+        {"time": 1.0, "text": "first", "duration": 2.0},
+    ]
+    vtt_path = write_captions_vtt(tmp_path / "output.vtt", captions, [], [])
+    text = vtt_path.read_text()
+    assert text.startswith("WEBVTT")
+    assert text.index("first") < text.index("second")
+
+
+@requires_ffmpeg
+def test_compose_with_captions_writes_a_vtt_sidecar_accounting_for_the_title_card(
+    tmp_path,
+):
+    """(issue #19 acceptance criteria) A toy take with two captions --
+    one before a turn's title card, one during the turn -- produces a
+    valid output.vtt whose cue times account for the title card inserted
+    before the turn."""
+    take_dir = tmp_path / "take"
+    take_dir.mkdir()
+    make_clip(take_dir / "observer.webm", 3.0)
+    make_clip(take_dir / "author.webm", 1.0, color="red")
+
+    timeline = Timeline.new("observer.webm")
+    timeline.add_actor_clip("author", "author.webm", offset=0.5, duration=1.0)
+    timeline.add_event(
+        {"type": "caption", "time": 0.0, "text": "Before", "duration": 0.5}
+    )
+    timeline.add_event({"type": "turn_start", "time": 0.5, "actor": "author"})
+    timeline.add_event(
+        {
+            "type": "chapter",
+            "time": 0.5,
+            "eyebrow": "Story",
+            "title": "Author",
+            "subtitle": "Doing a thing",
+            "duration": 2.0,
+        }
+    )
+    timeline.add_event(
+        {"type": "caption", "time": 1.0, "text": "During", "duration": 0.5}
+    )
+    timeline.add_event({"type": "turn_end", "time": 1.5, "actor": "author"})
+    timeline.save(take_dir / "timeline.json")
+
+    output = compose(take_dir)
+    vtt_path = output.with_suffix(".vtt")
+    assert vtt_path.exists()
+
+    cues = parse_vtt_cue_times(vtt_path)
+    assert len(cues) == 2
+    # "Before" (raw 0.0s) sits ahead of the title card (time=0.5), so it is
+    # unaffected by it.
+    assert cues[0] == pytest.approx((0.0, 0.5), abs=0.01)
+    # "During" (raw 1.0s) sits after the title card, so its 2.0s is added.
+    assert cues[1] == pytest.approx((3.0, 3.5), abs=0.01)
+    output_duration = ffprobe_duration(output)
+    assert cues[1][1] <= output_duration + 0.5

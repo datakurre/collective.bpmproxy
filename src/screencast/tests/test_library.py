@@ -59,6 +59,39 @@ def test_actor_turn_records_matching_start_and_end_events(tmp_path):
     assert clicked_pages[0].clicked == ["text=Add new"]
 
 
+def test_actor_turn_authenticates_with_http_basic_auth_by_default(tmp_path):
+    screencast = library_module.Screencast(take_dir=tmp_path)
+    screencast.start_observer("cockpit", "http://example.test/cockpit")
+    screencast.start_actor_turn("author")
+    context = library_module._SESSION._turn_context
+    assert context.kwargs["http_credentials"] == {
+        "username": "author",
+        "password": "author",
+    }
+    screencast.end_actor_turn()
+
+
+def test_actor_turn_password_overrides_the_default(tmp_path):
+    screencast = library_module.Screencast(take_dir=tmp_path)
+    screencast.start_observer("cockpit", "http://example.test/cockpit")
+    screencast.start_actor_turn("reviewer1", password="s3cret")
+    context = library_module._SESSION._turn_context
+    assert context.kwargs["http_credentials"] == {
+        "username": "reviewer1",
+        "password": "s3cret",
+    }
+    screencast.end_actor_turn()
+
+
+def test_anonymous_actor_turn_sets_no_credentials(tmp_path):
+    screencast = library_module.Screencast(take_dir=tmp_path)
+    screencast.start_observer("cockpit", "http://example.test/cockpit")
+    screencast.start_actor_turn("visitor", anonymous=True)
+    context = library_module._SESSION._turn_context
+    assert "http_credentials" not in context.kwargs
+    screencast.end_actor_turn()
+
+
 def test_end_actor_turn_without_start_raises(tmp_path):
     screencast = library_module.Screencast(take_dir=tmp_path)
     screencast.start_observer("cockpit", "http://example.test/cockpit")

@@ -626,6 +626,15 @@ cd backend
 tox
 ```
 
+The screencast engine's tests (`scripts/screencast/tests/`) are separate from
+`backend`'s pytest suite above -- not installed by `uv sync`, and not
+collected by a plain `cd backend && uv run pytest`:
+
+```bash
+pip install pytest robotframework jsonschema   # once
+PYTHONPATH=scripts python -m pytest scripts/screencast/tests/
+```
+
 ### CI/CD
 
 - **GitHub Actions** (`.github/workflows/plone-package.yml`), triggered on `master`/`main`:
@@ -637,8 +646,17 @@ tox
     fails CI rather than someone's browser.
   - `operaton-fixture` — `./mvnw -B test` for the Java fixture (JDK 21), which
     covers the JWT authentication filter and identity service.
-- Not covered by CI: the Robot suites, the `operaton`-marked live-engine tests,
-  the e2e scripts, and `devenv.nix` / `flake.nix` evaluation.
+  - `screencast-engine` — `scripts/screencast/tests/` (schema, RF keyword
+    library against a fake Playwright, driver, composer/verifier against
+    real ffmpeg on synthetic clips). No live browser or Plone/Operaton
+    stack needed for any of it.
+- Not covered by CI: the `operaton`-marked live-engine tests, the screencast
+  *stories* in `scripts/screencasts/` (as opposed to the engine that runs
+  them, which is covered above), and `devenv.nix` / `flake.nix` evaluation
+  -- all three need a live Plone/Operaton/Keycloak stack devenv provides and
+  CI does not. The Robot Framework acceptance suites under
+  `backend/src/collective/bpmproxy/tests/` were removed (`f51992d`): pytest
+  already excluded them and nothing ever ran them via `zope.testrunner`.
 
 ---
 

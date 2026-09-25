@@ -86,6 +86,61 @@ def test_actor_turn_records_matching_start_and_end_events(tmp_path):
     assert clicked_pages[0].clicked == ["text=Add new"]
 
 
+def test_turn_start_is_deferred_to_the_first_go_to(tmp_path):
+    """(regression, #17) turn_start/chapter used to be recorded at context
+    creation, before the turn's page had navigated anywhere -- the
+    composer's cut into the turn's clip then landed on blank pre-paint
+    frames. Deferring to the first Go To's completion (which already
+    waits for "load") means the turn opens on painted content."""
+    screencast = library_module.Screencast(take_dir=tmp_path)
+    screencast.start_observer("cockpit", "http://example.test/cockpit")
+    screencast.start_actor_turn("author", eyebrow="e", title="Author", subtitle="s")
+
+    timeline = library_module._SESSION.timeline
+    assert timeline.events_of("turn_start") == []
+    assert timeline.events_of("chapter") == []
+
+    screencast.go_to("http://example.test/turn-page")
+
+    starts = timeline.events_of("turn_start")
+    chapters = timeline.events_of("chapter")
+    assert [event["actor"] for event in starts] == ["author"]
+    assert chapters[0]["title"] == "Author"
+    assert chapters[0]["time"] == starts[0]["time"]
+
+    screencast.end_actor_turn()
+    # A second Go To later in the same turn must not add a duplicate mark.
+    assert len(timeline.events_of("turn_start")) == 1
+
+
+def test_turn_start_falls_back_to_context_creation_if_never_navigated(tmp_path):
+    screencast = library_module.Screencast(take_dir=tmp_path)
+    screencast.start_observer("cockpit", "http://example.test/cockpit")
+    screencast.start_actor_turn("author")
+    screencast.end_actor_turn()
+
+    starts = library_module._SESSION.timeline.events_of("turn_start")
+    assert [event["actor"] for event in starts] == ["author"]
+
+
+def test_actor_turn_starts_with_the_cursor_centered(tmp_path):
+    """(regression, #17) The injected cursor's CSS centers it by default,
+    but an incidental early mousemove (e.g. from Playwright's own
+    actionability/hover checks) at Chromium's uninitialized (0, 0)
+    position would override that with pixel coordinates, snapping the
+    visible cursor to the corner until the story's first Human Move.
+    Centering Playwright's own tracked mouse position up front keeps any
+    such incidental event centered too."""
+    screencast = library_module.Screencast(take_dir=tmp_path)
+    screencast.start_observer("cockpit", "http://example.test/cockpit")
+    screencast.start_actor_turn("author")
+
+    page = library_module._SESSION.current_page
+    viewport = library_module._SESSION.viewport
+    assert page.mouse.moves == [(viewport["width"] / 2, viewport["height"] / 2, 1)]
+    screencast.end_actor_turn()
+
+
 def test_actor_turn_authenticates_with_http_basic_auth_by_default(tmp_path):
     screencast = library_module.Screencast(take_dir=tmp_path)
     screencast.start_observer("cockpit", "http://example.test/cockpit")

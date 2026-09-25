@@ -64,6 +64,9 @@ class _Session:
         self._scratch_context = None
         self._page_before_scratch = None
         self._turn_started_at = None
+        self._turn_start_recorded = False
+        self._pending_turn_meta = None
+        self._turn_page = None
         self.timeline = None
         self.console_logs = {}
         self.open_pages = []
@@ -436,6 +439,17 @@ class Screencast:
             context = _SESSION.browser.new_context(**context_kwargs)
             context.add_init_script(CURSOR_SCRIPT)
             page = context.new_page()
+            # The injected cursor's CSS centers it by default, but Chromium
+            # has no real "last mouse position" yet on a brand-new context,
+            # so an incidental mousemove (Playwright's own actionability/
+            # hover checks can synthesize one) at that uninitialized (0, 0)
+            # would override the CSS with pixel coordinates and snap the
+            # visible cursor to the corner until the story's first Human
+            # Move. Centering Playwright's own tracked position up front
+            # keeps any such incidental event centered too.
+            page.mouse.move(
+                _SESSION.viewport["width"] / 2, _SESSION.viewport["height"] / 2
+            )
             _track_console(page)
             _SESSION.open_pages.append(page)
         except Exception as error:
@@ -444,22 +458,46 @@ class Screencast:
         _SESSION._turn_started_at = offset
         _SESSION.current_actor = actor
         _SESSION.current_page = page
-        if _SESSION.timeline is not None:
+        _SESSION._turn_page = page
+        # turn_start (and its chapter, if any) is *not* recorded here, at
+        # context creation -- the composer cuts into the turn's clip at
+        # that mark, and the page is still blank/pre-paint at this exact
+        # instant. Deferred to the first Go To's completion instead (see
+        # _record_turn_start, called from go_to()), which already waits
+        # for "load"; End Actor Turn falls back to this offset if the turn
+        # never navigates at all.
+        _SESSION._turn_start_recorded = False
+        _SESSION._pending_turn_meta = {
+            "actor": actor,
+            "eyebrow": eyebrow,
+            "title": title,
+            "subtitle": subtitle,
+        }
+
+    def _record_turn_start(self, at=None):
+        """Add the pending turn's turn_start (and chapter, if any) event,
+        at `at` seconds (or now, if `at` is None). No-op once already
+        recorded for this turn, or if there is no turn open."""
+        meta = _SESSION._pending_turn_meta
+        if meta is None or _SESSION._turn_start_recorded or _SESSION.timeline is None:
+            return
+        time_at = _SESSION.elapsed() if at is None else at
+        _SESSION.timeline.add_event(
+            {"type": "turn_start", "time": time_at, "actor": meta["actor"]}
+        )
+        if meta["title"]:
             _SESSION.timeline.add_event(
-                {"type": "turn_start", "time": offset, "actor": actor}
+                {
+                    "type": "chapter",
+                    "time": time_at,
+                    "eyebrow": meta["eyebrow"] or "",
+                    "title": meta["title"],
+                    "subtitle": meta["subtitle"] or "",
+                    "duration": 8.0,
+                }
             )
-            if title:
-                _SESSION.timeline.add_event(
-                    {
-                        "type": "chapter",
-                        "time": offset,
-                        "eyebrow": eyebrow or "",
-                        "title": title,
-                        "subtitle": subtitle or "",
-                        "duration": 8.0,
-                    }
-                )
-            _save_timeline()
+        _SESSION._turn_start_recorded = True
+        _save_timeline()
 
     def end_actor_turn(self, return_to_observer=True):
         """Close the current actor turn's context, flush its video, and
@@ -467,6 +505,9 @@ class Screencast:
         context = _SESSION._turn_context
         if context is None:
             raise FatalError("No actor turn is open -- call Start Actor Turn first")
+        # Fallback for a turn that never navigated (Go To normally records
+        # this at the first painted frame instead -- see go_to()).
+        self._record_turn_start(at=_SESSION._turn_started_at)
         page = _SESSION.current_page
         video_path = page.video.path() if _SESSION.record and page.video else None
         context.close()
@@ -487,6 +528,9 @@ class Screencast:
         _SESSION._turn_context = None
         _SESSION._turn_started_at = None
         _SESSION.current_actor = None
+        _SESSION._pending_turn_meta = None
+        _SESSION._turn_start_recorded = False
+        _SESSION._turn_page = None
         if return_to_observer and _SESSION.observer_page is not None:
             # Longer than observe()'s own default: this is the cut back to
             # the wide/observer shot after a turn ends, not a brief in-app
@@ -664,8 +708,19 @@ class Screencast:
     def go_to(self, url):
         """Navigate the current page. A thin wrapper over `page.goto()` --
         project keywords needing anything more specific (auth, polling
-        redirects) build on `Get Current Page` instead."""
-        self._page().goto(url, wait_until="load")
+        redirects) build on `Get Current Page` instead.
+
+        If this is the first navigation of an open actor turn's own page,
+        also records that turn's deferred turn_start/chapter here, now
+        that `wait_until="load"` above has it painted (see
+        `_record_turn_start`). Guarded by identity, not just "a turn is
+        open", so a scratch context opened mid-turn (not done by any
+        current story, but not forbidden either) navigating its own,
+        different page does not misattribute the mark."""
+        page = self._page()
+        page.goto(url, wait_until="load")
+        if page is _SESSION._turn_page and not _SESSION._turn_start_recorded:
+            self._record_turn_start()
 
     def get_current_page(self):
         """Return the live Playwright Page for the current context, for

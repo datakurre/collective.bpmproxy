@@ -117,7 +117,11 @@ def probe(resource, keyword, args=(), take_dir=".", record=False, headless=True)
         args=(f"take_dir={take_dir}", f"record={record}", f"headless={headless}"),
     )
     if resource:
-        suite.resource.imports.resource(str(resource))
+        # This suite is built in memory (not TestSuite.from_file_system), so
+        # it has no source file for Robot to resolve a relative import
+        # against -- resolve it against the process's own CWD ourselves, the
+        # same base a user typing a relative --resource path expects.
+        suite.resource.imports.resource(str(Path(resource).resolve()))
     task = suite.tests.create(name="Probe")
     task.body.create_keyword(name=keyword, args=tuple(args))
     output = take_dir / "probe-output.json"

@@ -144,6 +144,27 @@ def test_probe_passes_take_dir_and_record_as_named_library_args(tmp_path):
     assert library_module._SESSION.record is False
 
 
+def test_probe_resolves_a_relative_resource_path_against_cwd(tmp_path, monkeypatch):
+    """(regression, PR #14 review finding #6) probe()'s suite is built in
+    memory, not via TestSuite.from_file_system, so it has no source file
+    for Robot to resolve a relative --resource path against -- passing one
+    straight through used to fail (or resolve against the wrong base)."""
+    resource_dir = tmp_path / "resources"
+    resource_dir.mkdir()
+    (resource_dir / "project.resource").write_text(
+        "*** Keywords ***\nDo The Thing\n    No Operation\n"
+    )
+    monkeypatch.chdir(tmp_path)
+
+    code = driver.probe(
+        "resources/project.resource",
+        "Do The Thing",
+        take_dir=tmp_path / "take",
+        record=False,
+    )
+    assert code == 0
+
+
 def test_probe_reuses_the_browser_across_calls(tmp_path):
     driver.probe(
         None, "Start Observer", ["observer", "http://example.test"], take_dir=tmp_path

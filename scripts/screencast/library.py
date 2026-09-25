@@ -206,6 +206,12 @@ class Screencast:
             context = _SESSION.browser.new_context(**context_kwargs)
             context.add_init_script(CURSOR_SCRIPT)
             page = context.new_page()
+            # Recording begins here, at page creation -- not at the first
+            # goto below. Starting the clock any later would make every
+            # timeline timestamp (turn offsets, turn_start/end, chapter,
+            # focus, hold) land earlier than its true position in the
+            # observer video by however long that first navigation took.
+            _SESSION.started = time.monotonic()
             _track_console(page)
             _SESSION.open_pages.append(page)
             page.goto(url, wait_until="load")
@@ -217,7 +223,6 @@ class Screencast:
         _SESSION.observer_context = context
         _SESSION.observer_page = page
         _SESSION.current_page = page
-        _SESSION.started = time.monotonic()
         video_path = page.video.path() if _SESSION.record else None
         _SESSION.timeline = Timeline.new(
             observer_video=Path(video_path).name if video_path else "",

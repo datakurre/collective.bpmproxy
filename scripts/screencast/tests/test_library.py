@@ -6,6 +6,7 @@ from pathlib import Path
 from robot.api import FatalError
 from screencast import library as library_module
 from screencast.tests.fakes import fake_sync_playwright
+from screencast.tests.fakes import FakePage
 from screencast.tests.fakes import FakePlaywright
 import pytest
 import sys
@@ -29,6 +30,32 @@ def test_start_observer_starts_the_clock_and_a_timeline(tmp_path):
     assert library_module._SESSION.started is not None
     assert library_module._SESSION.timeline.observer["name"] == "cockpit"
     assert library_module._SESSION.current_page.url == "http://example.test/cockpit"
+
+
+def test_start_observer_starts_the_clock_before_the_first_goto(tmp_path, monkeypatch):
+    """(regression, PR #14 review finding #3) Video recording begins at
+    context.new_page(), not at the first goto -- starting the clock any
+    later makes every timeline timestamp (turn offsets, turn_start/end,
+    chapter, focus, hold) land earlier than its true position in the
+    observer video by however long that first navigation took."""
+    clock = {"t": 100.0}
+    monkeypatch.setattr(library_module.time, "monotonic", lambda: clock["t"])
+
+    real_goto = FakePage.goto
+
+    def slow_goto(self, url, wait_until="load"):
+        clock["t"] += 5.0  # simulate the first navigation taking 5s
+        return real_goto(self, url, wait_until=wait_until)
+
+    monkeypatch.setattr(FakePage, "goto", slow_goto)
+
+    screencast = library_module.Screencast(take_dir=tmp_path)
+    screencast.start_observer("cockpit", "http://example.test/cockpit")
+
+    # Captured at new_page(), before slow_goto's +5s -- not the buggy 105.0.
+    assert library_module._SESSION.started == 100.0
+    clock["t"] += 2.0
+    assert library_module._SESSION.elapsed() == pytest.approx(7.0)
 
 
 def test_actor_turn_records_matching_start_and_end_events(tmp_path):

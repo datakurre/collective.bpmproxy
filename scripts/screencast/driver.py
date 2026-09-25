@@ -114,7 +114,7 @@ def probe(resource, keyword, args=(), take_dir=".", record=False, headless=True)
     suite = TestSuite(name="Probe")
     suite.resource.imports.library(
         "screencast.Screencast",
-        args=(f"take_dir:{take_dir}", f"record:{record}", f"headless:{headless}"),
+        args=(f"take_dir={take_dir}", f"record={record}", f"headless={headless}"),
     )
     if resource:
         suite.resource.imports.resource(str(resource))

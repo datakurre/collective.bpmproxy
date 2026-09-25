@@ -61,6 +61,37 @@ After
     No Operation
 """
 
+EVENTUAL_SUCCESS_STORY = """\
+*** Settings ***
+Library    screencast.Screencast    take_dir=${TAKE_DIR}    record=${RECORD}
+
+*** Test Cases ***
+Eventually Succeeds
+    Start Observer    observer    http://example.test
+    Wait Until Keyword Succeeds    5x    0.01s    Fail Twice Then Pass
+    [Teardown]    End Observer
+
+*** Keywords ***
+Fail Twice Then Pass
+    ${count}=    Get Variable Value    ${ATTEMPT_COUNT}    ${0}
+    ${count}=    Evaluate    ${count} + 1
+    Set Suite Variable    ${ATTEMPT_COUNT}    ${count}
+    IF    ${count} < 3
+        Fail    not yet
+    END
+"""
+
+GENUINE_FAILURE_WITH_RETRIES_STORY = """\
+*** Settings ***
+Library    screencast.Screencast    take_dir=${TAKE_DIR}    record=${RECORD}
+
+*** Test Cases ***
+Genuinely Fails
+    Start Observer    observer    http://example.test
+    Wait Until Keyword Succeeds    3x    0.01s    Fail    still broken
+    [Teardown]    End Observer
+"""
+
 
 def write_story(tmp_path, text, name="story.robot"):
     path = tmp_path / name
@@ -118,6 +149,32 @@ def test_run_stops_after_the_first_failed_task(tmp_path):
     statuses = {test.name: test.status for test in result.suite.all_tests}
     assert statuses["Broken"] == "FAIL"
     assert statuses["After"] != "PASS"
+
+
+def test_failure_artifacts_dumped_once_per_task_not_per_retry_attempt(tmp_path):
+    """(regression, PR #14 review finding #9) The listener used to dump a
+    screenshot/aria-snapshot/console-log bundle on every failed keyword
+    (end_keyword), including every failed attempt inside a Wait Until
+    Keyword Succeeds retry loop -- noisy, and outright wrong when a later
+    attempt succeeds and the task passes overall. FakePage.screenshot() is
+    a no-op, so a dump's real, countable side effect is its .txt file."""
+    take_dir = tmp_path / "take"
+
+    # Two failed attempts, then a third that succeeds -- the task PASSES
+    # overall, so nothing should be dumped.
+    story = write_story(tmp_path, EVENTUAL_SUCCESS_STORY, name="eventual.robot")
+    code, _ = driver.run(story, take_dir=take_dir, quiet=True)
+    assert code == 0
+    assert list(take_dir.glob("failure-*.txt")) == []
+
+    # Every attempt fails -- the task FAILS overall, so exactly one bundle
+    # should be dumped, not one per retry attempt.
+    story = write_story(
+        tmp_path, GENUINE_FAILURE_WITH_RETRIES_STORY, name="broken.robot"
+    )
+    code, _ = driver.run(story, take_dir=take_dir, quiet=True)
+    assert code != 0
+    assert len(list(take_dir.glob("failure-*.txt"))) == 1
 
 
 def test_summarize_failures_reports_all_tasks_passed(tmp_path):

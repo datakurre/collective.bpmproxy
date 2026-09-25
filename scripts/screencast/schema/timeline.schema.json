@@ -141,6 +141,11 @@
         "view": {
           "enum": ["actor", "observer"],
           "default": "observer"
+        },
+        "recorded": {
+          "type": "boolean",
+          "default": false,
+          "description": "True for a hold the library itself derived from real elapsed recording time (e.g. the return-to-observer wait after a turn), as opposed to a story's own Hold call. The composer does not insert a synthetic freeze for one (that time is already real footage in the observer clip); the verifier's dead_air check still budgets for it."
         }
       }
     }

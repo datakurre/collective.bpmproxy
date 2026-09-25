@@ -454,7 +454,25 @@ class Screencast:
         if return_to_observer and _SESSION.observer_page is not None:
             # Longer than observe()'s own default: this is the cut back to
             # the wide/observer shot after a turn ends, not a brief in-app
-            # navigation settle -- give the viewer time to register it.
+            # navigation settle -- give the viewer time to register it. This
+            # wait is real elapsed time in the observer's own recording, not
+            # a synthetic freeze the composer inserts (unlike a story's own
+            # Hold) -- record it as a "recorded" hold so verify's dead_air
+            # check budgets for it too, without the composer double-freezing
+            # already-real footage or the duration check expecting output
+            # time that was never inserted (see compose.py's emit_holds_at
+            # and verify.py's predicted_duration).
+            if _SESSION.timeline is not None:
+                _SESSION.timeline.add_event(
+                    {
+                        "type": "hold",
+                        "time": end_offset,
+                        "duration": DEFAULT_RETURN_TO_OBSERVER_WAIT,
+                        "view": "observer",
+                        "recorded": True,
+                    }
+                )
+                _save_timeline()
             self.observe(wait=DEFAULT_RETURN_TO_OBSERVER_WAIT)
 
     # -- timeline-only events, no browser wait -----------------------------

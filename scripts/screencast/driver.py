@@ -44,6 +44,11 @@ def run(story, task=None, record=True, take_dir=None, headless=True, quiet=False
         "loglevel": "DEBUG",
         "console": "none",
         "variable": [f"TAKE_DIR:{take_dir}", f"RECORD:{record}"],
+        # Stop at the first failed task instead of running every later one
+        # too -- each carries its own Wait Until Keyword Succeeds retry
+        # loops (seconds to minutes), which are pointless to burn through
+        # once an earlier task has already broken the story's state.
+        "exitonfailure": True,
     }
     if not quiet:
         run_kwargs["listener"] = [TaskConsole()]

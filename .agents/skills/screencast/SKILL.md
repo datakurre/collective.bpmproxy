@@ -186,16 +186,30 @@ want to call them directly:
    every page still open when it failed. Read those before touching the
    story again; the answer is usually right there.
 3. **`probe KEYWORD args... [--resource FILE]`** — runs one keyword against
-   the *live* session a previous `run`/`probe` in this same process left
-   open (module-level state in `screencast.library`, not per-instance) — fix
-   a selector and re-probe without replaying the whole story. `--repl` reads
-   one keyword call per line from stdin against that same session.
+   the *live* session a previous `run`/`probe` call left open, **as long as
+   it happened in this same Python process**: the session is module-level
+   state in `screencast.library`, not per-instance, and it does **not**
+   survive a process exit. Two separate `python -m screencast run` /
+   `python -m screencast probe` shell commands do *not* share a browser --
+   each is its own process, so `probe` there always starts a fresh one.
+   `--repl` reads one keyword call per line from stdin against the same
+   session for as long as the process stays up, which is the practical way
+   to get several `probe` calls (or a `run` followed by `probe` calls) to
+   share one browser: call `driver.run(...)` then `driver.probe(...)`/
+   `driver.repl(...)` directly from one Python script or interpreter,
+   rather than chaining separate `python -m screencast ...` invocations.
 4. **`keywords resources/bpmproxy.resource`** — lists a resource's keywords
    with their arguments and doc, so you know what already exists before
    writing a new one or guessing an argument name.
 
-Loop: `run` → read the summary → `probe` the fix against the still-open
-session → `run --no-record` again once it's clean → record for real.
+Loop, all in one Python process (see point 3 -- a script or interpreter
+calling `screencast.driver` functions directly, not separate `python -m
+screencast` shell invocations): `run` → read the summary → `probe` the fix
+against the still-open session → `run --no-record` again once it's clean →
+record for real. There is currently no single CLI command that reruns a
+story and then drops straight into `probe`/`--repl` against that same
+session (collective/collective.bpmproxy#14 review finding #7 flags a
+`--repl-on-failure` mode on `run` itself as a possible follow-up).
 
 # Take verification
 

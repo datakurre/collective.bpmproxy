@@ -11,11 +11,14 @@ exists" and "does this parse" without spending a turn on the browser at all.
 
 from pathlib import Path
 from robot.api import ExecutionResult
+from robot.libraries.BuiltIn import BuiltIn
 from robot.result import Keyword as ResultKeyword
 from robot.result import Message as ResultMessage
 from robot.running import TestSuite
 from robot.running.builder import ResourceFileBuilder
 from screencast.console import TaskConsole
+from screencast.library import _RECOVERING_WRAPPER_KEYWORDS
+from screencast.library import Screencast
 import datetime
 import sys
 
@@ -27,9 +30,27 @@ def default_take_dir(story, base=None):
     return base / stamp
 
 
-def run(story, task=None, record=True, take_dir=None, headless=True, quiet=False):
+def run(
+    story,
+    task=None,
+    record=True,
+    take_dir=None,
+    headless=True,
+    quiet=False,
+    repl_on_failure=False,
+    repl_stdin=None,
+    repl_out=print,
+):
     """Run `story` in-process, in this same interpreter, so a later `probe`
-    call can reuse the live browser. Returns (return_code, output_path)."""
+    call can reuse the live browser. Returns (return_code, output_path).
+
+    With `repl_on_failure=True`, the first keyword that fails outside any
+    recovery boundary (Wait Until Keyword Succeeds/Run Keyword And .../a
+    TRY block -- see _ReplOnFailureListener) pauses the run right there,
+    before the failing task's own [Teardown] closes its page, and drops
+    into a synchronous keyword REPL against that same live session -- see
+    the class docstring for why this calls BuiltIn().run_keyword()
+    in-process rather than driver.probe()'s throwaway TestSuite."""
     take_dir = Path(take_dir) if take_dir else default_take_dir(story)
     take_dir.mkdir(parents=True, exist_ok=True)
     output = take_dir / "output.json"
@@ -50,8 +71,13 @@ def run(story, task=None, record=True, take_dir=None, headless=True, quiet=False
         # once an earlier task has already broken the story's state.
         "exitonfailure": True,
     }
+    listeners = []
     if not quiet:
-        run_kwargs["listener"] = [TaskConsole()]
+        listeners.append(TaskConsole())
+    if repl_on_failure:
+        listeners.append(_ReplOnFailureListener(stdin=repl_stdin, out=repl_out))
+    if listeners:
+        run_kwargs["listener"] = listeners
 
     result = suite.run(**run_kwargs)
     if not quiet:
@@ -59,6 +85,106 @@ def run(story, task=None, record=True, take_dir=None, headless=True, quiet=False
             print(summarize_failures(output))
         print(f"Take directory: {take_dir}")
     return result.return_code, output
+
+
+def _format_keyword_call(data):
+    args = ", ".join(str(arg) for arg in data.args)
+    return f"{data.name}[{args}]" if args else data.name
+
+
+class _ReplOnFailureListener:
+    """Registered as an extra `run()` listener when `repl_on_failure=True`.
+    Pauses on the first keyword that fails outside any recovery boundary
+    and drops into a synchronous keyword REPL against the live session,
+    before Robot Framework runs the failing task's own [Teardown] -- so
+    `End Actor Turn` has not yet closed the page that failed.
+
+    Keywords typed at the REPL run via BuiltIn().run_keyword(), in this
+    same process, inside this same listener callback -- *not*
+    driver.probe()'s throwaway TestSuite. A nested TestSuite.run() from
+    inside a running suite's listener is unsafe: TestSuite.run() wraps
+    its execution in `with LOGGER:` (robot.running.model), and LOGGER is
+    a process-wide singleton whose __exit__ unconditionally resets it
+    (`self.__init__(register_console_logger=False)`), discarding every
+    listener the *outer*, still-running suite registered. Verified
+    directly against the installed Robot Framework (7.5) for #16: a
+    nested suite.run() from a listener callback returns normally with no
+    exception, but every listener notification for the rest of the outer
+    run silently stops arriving. BuiltIn().run_keyword() has none of
+    that: it runs the keyword in the already-active execution context,
+    correctly reaches both library keywords and the story's own resource
+    keywords (RF resolves it by name against the whole active namespace,
+    same as any other keyword call), and still fires the normal listener
+    notifications for it -- which is also why a keyword that fails *at
+    the REPL* does not recursively trigger another pause: `_paused` below
+    is set before the REPL loop starts, and (deliberately) never reset
+    until the next test, so a nested failure notification for the very
+    keyword the REPL is running hits the same one-shot guard.
+    """
+
+    ROBOT_LISTENER_API_VERSION = 3
+
+    def __init__(self, stdin=None, out=print):
+        self._stdin = stdin if stdin is not None else sys.stdin
+        self._out = out
+        self._depth = 0
+        self._path = []
+        self._paused = False
+
+    def start_test(self, data, result):
+        self._depth = 0
+        self._path = [data.name]
+        self._paused = False
+
+    def start_keyword(self, data, result):
+        self._path.append(_format_keyword_call(data))
+        if data.name in _RECOVERING_WRAPPER_KEYWORDS:
+            self._depth += 1
+
+    def start_try(self, data, result):
+        self._depth += 1
+
+    def end_try(self, data, result):
+        self._depth -= 1
+        self._maybe_pause(result)
+
+    def end_keyword(self, data, result):
+        if data.name in _RECOVERING_WRAPPER_KEYWORDS:
+            self._depth -= 1
+        self._maybe_pause(result)
+        self._path.pop()
+
+    def _maybe_pause(self, result):
+        if self._paused:
+            return
+        if result.status != "FAIL" or self._depth != 0:
+            return
+        self._paused = True
+        self._out(f"FAIL: {' > '.join(self._path)}")
+        if result.message:
+            self._out(f"  {result.message}")
+        for artifact in Screencast.ROBOT_LIBRARY_LISTENER._pending_dump_paths or []:
+            self._out(f"  artifact: {artifact}")
+        self._out(
+            "repl-on-failure: one keyword per line against the live session "
+            "(Keyword Name<tab or 4 spaces>arg1<tab or 4 spaces>arg2), "
+            "Ctrl-D/EOF to stop and let teardown run."
+        )
+        self._loop()
+
+    def _loop(self):
+        for line in self._stdin:
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split("\t") if "\t" in line else line.split("    ")
+            parts = [part.strip() for part in parts if part.strip()]
+            name, args = parts[0], parts[1:]
+            try:
+                BuiltIn().run_keyword(name, *args)
+                self._out("OK")
+            except Exception as error:  # noqa: BLE001 -- report, keep looping
+                self._out(f"FAIL: {error}")
 
 
 def summarize_failures(output_path):

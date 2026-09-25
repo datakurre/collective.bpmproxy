@@ -17,6 +17,12 @@ def main(argv=None):
     run_parser.add_argument("--no-record", action="store_true")
     run_parser.add_argument("--take", default=None, help="Take directory")
     run_parser.add_argument("--headed", action="store_true")
+    run_parser.add_argument(
+        "--repl-on-failure",
+        action="store_true",
+        help="On the first unrecovered failure, pause before teardown and "
+        "drop into a keyword REPL against the same live session",
+    )
 
     probe_parser = subparsers.add_parser("probe", help="Run one keyword live")
     probe_parser.add_argument("keyword")
@@ -61,6 +67,7 @@ def main(argv=None):
             record=not args.no_record,
             take_dir=args.take,
             headless=not args.headed,
+            repl_on_failure=args.repl_on_failure,
         )
         return code
 

@@ -167,9 +167,9 @@ want to call them directly:
    call resolves and validates its arguments against what's actually
    imported, with no browser opened. Cheapest first move on anything that
    might be a typo or a missing argument.
-2. **`run story.robot [--task NAME] [--no-record] [--take DIR]`** — executes
-   in-process. On a failure, prints a compact summary instead of Robot
-   Framework's normal per-keyword trace:
+2. **`run story.robot [--task NAME] [--no-record] [--take DIR] [--repl-on-failure]`**
+   — executes in-process. On a failure, prints a compact summary instead of
+   Robot Framework's normal per-keyword trace:
    ```
    FAIL: Story.Broken Turn
      Broken Turn > Human Click[label=Approve]
@@ -185,6 +185,27 @@ want to call them directly:
    listener wrote — a screenshot, `aria_snapshot()`, console log, and URL for
    every page still open when it failed. Read those before touching the
    story again; the answer is usually right there.
+
+   **`--repl-on-failure` is the primary way to debug a broken story.** On
+   the first keyword that fails outside any recovery boundary (a `Wait
+   Until Keyword Succeeds`/`Run Keyword And ...`/`TRY` block whose retries
+   or `EXCEPT` might still swallow it), the run pauses *before* the task's
+   own `[Teardown]` runs — so `End Actor Turn` has not yet closed the page
+   that failed — prints the same failure summary, and drops into a
+   keyword-per-line REPL against that exact live session:
+   ```
+   FAIL: Story.Broken Turn > Human Click[label=Approve]
+     TimeoutError: Locator.get_by_label: Timeout 30000ms exceeded.
+   repl-on-failure: one keyword per line against the live session
+   (Keyword Name<tab or 4 spaces>arg1<tab or 4 spaces>arg2), Ctrl-D/EOF to
+   stop and let teardown run.
+   Get Current Page
+   OK
+   ```
+   Try the fix directly against the failing page, Ctrl-D/EOF when done, and
+   teardown (and the process) proceeds normally. This is a single `run`
+   invocation, one Python process throughout — no separate `probe` call and
+   no risk of a dead browser.
 3. **`probe KEYWORD args... [--resource FILE]`** — runs one keyword against
    the *live* session a previous `run`/`probe` call left open, **as long as
    it happened in this same Python process**: the session is module-level
@@ -195,21 +216,30 @@ want to call them directly:
    `--repl` reads one keyword call per line from stdin against the same
    session for as long as the process stays up, which is the practical way
    to get several `probe` calls (or a `run` followed by `probe` calls) to
-   share one browser: call `driver.run(...)` then `driver.probe(...)`/
-   `driver.repl(...)` directly from one Python script or interpreter,
-   rather than chaining separate `python -m screencast ...` invocations.
+   share one browser without `--repl-on-failure`: call `driver.run(...)`
+   then `driver.probe(...)`/`driver.repl(...)` directly from one Python
+   script or interpreter, rather than chaining separate `python -m
+   screencast ...` invocations. Useful once a story already passes and you
+   want to poke at the resulting session, or from a script that wants
+   `run`/`probe` as separate, composable calls rather than one paused `run`.
 4. **`keywords resources/bpmproxy.resource`** — lists a resource's keywords
    with their arguments and doc, so you know what already exists before
    writing a new one or guessing an argument name.
 
-Loop, all in one Python process (see point 3 -- a script or interpreter
-calling `screencast.driver` functions directly, not separate `python -m
-screencast` shell invocations): `run` → read the summary → `probe` the fix
-against the still-open session → `run --no-record` again once it's clean →
-record for real. There is currently no single CLI command that reruns a
-story and then drops straight into `probe`/`--repl` against that same
-session (collective/collective.bpmproxy#14 review finding #7 flags a
-`--repl-on-failure` mode on `run` itself as a possible follow-up).
+Loop: `run --repl-on-failure` → read the summary → try the fix at the paused
+REPL against the still-open page → Ctrl-D/EOF → `run --no-record` again once
+it's clean → record for real. `--repl-on-failure` runs `Get Current Page`- or
+`Go To`-style probes via `BuiltIn().run_keyword()` in the same process and
+execution context as the run itself — deliberately not a nested
+`TestSuite.run()` (as `probe` uses): Robot Framework's `TestSuite.run()`
+wraps its execution in `with LOGGER:`, and `LOGGER` is a process-wide
+singleton whose `__exit__` unconditionally resets it, discarding every
+listener the *outer*, still-running suite registered — a nested run from
+inside a listener callback returns normally with no exception, but every
+listener notification for the rest of the outer run silently stops
+arriving (verified directly against Robot Framework 7.5 for
+collective/collective.bpmproxy#16, which also flagged the `run`→`probe`
+gap this closes).
 
 # Take verification
 

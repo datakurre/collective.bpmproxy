@@ -8,6 +8,7 @@ from screencast import driver
 from screencast import library as library_module
 from screencast.tests.fakes import fake_sync_playwright
 from screencast.tests.fakes import FakePlaywright
+import io
 import pytest
 import sys
 import types
@@ -410,3 +411,115 @@ def test_render_log_writes_log_html(tmp_path):
     _, _ = driver.run(story, take_dir=tmp_path / "take", quiet=True)
     log_path = driver.render_log(tmp_path / "take")
     assert log_path.exists()
+
+
+MID_TURN_FAILURE_STORY = """\
+*** Settings ***
+Library    screencast.Screencast    take_dir=${TAKE_DIR}    record=${RECORD}
+
+*** Test Cases ***
+Turn
+    Start Observer    observer    http://example.test
+    Start Actor Turn    author
+    Fail    boom mid-turn
+    [Teardown]    End Actor Turn
+"""
+
+
+def test_repl_on_failure_probes_the_same_page_before_teardown_closes_it(tmp_path):
+    """(#16) A nested TestSuite.run() from inside a listener callback is
+    unsafe (see _ReplOnFailureListener's docstring) -- confirmed directly
+    against the installed Robot Framework for this issue. repl_on_failure
+    instead runs REPL-typed keywords via BuiltIn().run_keyword(), pausing
+    before the failing task's own [Teardown] (End Actor Turn) closes the
+    actor's context. Scripts one `Go To` at the REPL and checks it landed
+    on the *actor's* still-open page, not on whatever current_page becomes
+    once End Actor Turn later switches it back to the observer -- proving
+    both that the probe ran against the live session and that it ran
+    strictly before teardown."""
+    story = write_story(tmp_path, MID_TURN_FAILURE_STORY)
+    take_dir = tmp_path / "take"
+    stdin = io.StringIO("Go To\thttp://probed.example.test\n")
+
+    code, _ = driver.run(
+        story,
+        take_dir=take_dir,
+        quiet=True,
+        repl_on_failure=True,
+        repl_stdin=stdin,
+    )
+    assert code != 0
+
+    browser = FakePlaywright.instances[0].browser
+    observer_context, actor_context = browser.contexts[0], browser.contexts[1]
+    actor_page = actor_context.pages[0]
+    assert actor_page.url == "http://probed.example.test"
+    assert observer_context.pages[0].url != "http://probed.example.test"
+    # End Actor Turn ran (closed the turn's context) -- but only after the
+    # REPL above already ran against it.
+    assert actor_context.closed is True
+
+
+def test_repl_on_failure_does_not_pause_on_a_retry_that_later_succeeds(tmp_path):
+    """A failure inside a Wait Until Keyword Succeeds retry loop that
+    later recovers must not pop the REPL -- only a failure that escapes
+    every recovery boundary should. Asserts on the printed banner, not
+    just the exit code: pausing here would not itself break the story
+    (the pause is a side effect of end_keyword, not a redirect of Robot's
+    own control flow), so a wrongly early pause needs its own signal to
+    catch -- an empty scripted stdin makes the REPL loop a no-op either
+    way, and the retry keeps recovering into a passing task regardless."""
+    story = write_story(tmp_path, EVENTUAL_SUCCESS_STORY)
+    take_dir = tmp_path / "take"
+    stdin = io.StringIO()  # never read from if no pause happens
+    out = []
+
+    code, _ = driver.run(
+        story,
+        take_dir=take_dir,
+        quiet=True,
+        repl_on_failure=True,
+        repl_stdin=stdin,
+        repl_out=out.append,
+    )
+    assert code == 0
+    assert not any(line.startswith("repl-on-failure:") for line in out), out
+
+
+def test_repl_on_failure_reports_a_failing_probe_and_keeps_looping(tmp_path):
+    """A probed keyword that itself fails must not crash the REPL loop or
+    recursively re-trigger a pause -- it just reports FAIL and reads the
+    next line. Scripts three failing probes in a row: BuiltIn().run_keyword()
+    fires the same listener's end_keyword for a probed keyword too (see the
+    class docstring), so without the one-shot `_paused` guard, each failing
+    probe would re-enter _maybe_pause -> _loop, printing the pause banner
+    again and nesting the Python call stack one level deeper per failure --
+    here surfaced as an extra banner per failing probe rather than exactly
+    one, since the recursive calls share (and keep draining) the same
+    stdin iterator."""
+    story = write_story(tmp_path, MID_TURN_FAILURE_STORY)
+    take_dir = tmp_path / "take"
+    stdin = io.StringIO(
+        "Fail\tprobe boom 1\n"
+        "Fail\tprobe boom 2\n"
+        "Fail\tprobe boom 3\n"
+        "Go To\thttp://after-failing-probes.example.test\n"
+    )
+    out = []
+
+    code, _ = driver.run(
+        story,
+        take_dir=take_dir,
+        quiet=True,
+        repl_on_failure=True,
+        repl_stdin=stdin,
+        repl_out=out.append,
+    )
+    assert code != 0
+
+    banners = [line for line in out if line.startswith("repl-on-failure:")]
+    assert len(banners) == 1, out
+
+    browser = FakePlaywright.instances[0].browser
+    actor_page = browser.contexts[1].pages[0]
+    assert actor_page.url == "http://after-failing-probes.example.test"

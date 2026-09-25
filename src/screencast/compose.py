@@ -346,11 +346,11 @@ def compose(take_dir, output=None):
             f"stop_mode=clone,fps={FPS}[{label}]"
         )
 
-    def pad_inset(src, dst, scale):
+    def pad_inset(src, dst, scale, border=DEFAULT_BORDER):
         filters.append(
             f"[{src}]scale=iw*{scale}:-2,"
-            f"pad=iw+{2 * DEFAULT_BORDER}:ih+{2 * DEFAULT_BORDER}:{DEFAULT_BORDER}:"
-            f"{DEFAULT_BORDER}:color={DEFAULT_BORDER_COLOR}[{dst}]"
+            f"pad=iw+{2 * border}:ih+{2 * border}:{border}:"
+            f"{border}:color={DEFAULT_BORDER_COLOR}[{dst}]"
         )
 
     def overlay(main, inset, margin, dst):
@@ -412,7 +412,7 @@ def compose(take_dir, output=None):
             turn_slice(main_label, inset_turn_id, start, end)
             inset_label = next_label("inset")
             observer_slice(f"{inset_label}raw", start, end)
-            pad_inset(f"{inset_label}raw", inset_label, scale)
+            pad_inset(f"{inset_label}raw", inset_label, scale, border)
             overlay(main_label, inset_label, margin, label)
         else:
             main_label = next_label("main")
@@ -430,7 +430,7 @@ def compose(take_dir, output=None):
                     frozen_turn_slice(
                         f"{inset_label}raw", inset_turn_id, turn_end, end - start
                     )
-                pad_inset(f"{inset_label}raw", inset_label, scale)
+                pad_inset(f"{inset_label}raw", inset_label, scale, border)
                 overlay(main_label, inset_label, margin, label)
         segment_labels.append(label)
 

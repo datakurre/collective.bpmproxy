@@ -119,6 +119,27 @@ def test_anonymous_actor_turn_sets_no_credentials(tmp_path):
     screencast.end_actor_turn()
 
 
+def test_end_actor_turn_returns_to_observer_with_the_longer_wait(tmp_path, monkeypatch):
+    """(regression, PR #14 review finding #11) DEFAULT_RETURN_TO_OBSERVER_WAIT
+    was defined but never used -- end_actor_turn's auto-observe() call fell
+    through to observe()'s own shorter DEFAULT_OBSERVE_WAIT instead."""
+    waits = []
+    real_wait_for_timeout = FakePage.wait_for_timeout
+
+    def recording_wait_for_timeout(self, ms):
+        waits.append(ms)
+        return real_wait_for_timeout(self, ms)
+
+    monkeypatch.setattr(FakePage, "wait_for_timeout", recording_wait_for_timeout)
+
+    screencast = library_module.Screencast(take_dir=tmp_path)
+    screencast.start_observer("cockpit", "http://example.test/cockpit")
+    screencast.start_actor_turn("author")
+    screencast.end_actor_turn()
+
+    assert waits == [int(library_module.DEFAULT_RETURN_TO_OBSERVER_WAIT * 1000)]
+
+
 def test_end_actor_turn_without_start_raises(tmp_path):
     screencast = library_module.Screencast(take_dir=tmp_path)
     screencast.start_observer("cockpit", "http://example.test/cockpit")
@@ -198,6 +219,30 @@ def test_timeline_written_to_disk_by_the_listener_on_close(tmp_path):
 
     loaded = Timeline.load(timeline_path)
     assert loaded.actor_clip("author")
+
+
+def test_timeline_is_saved_incrementally_not_only_at_listener_close(tmp_path):
+    """(regression, PR #14 review finding #11) The timeline used to be
+    written to disk only once, in _Listener.close() at the very end of the
+    run -- a crash mid-take (an ffmpeg/browser death, a killed process)
+    would lose every event recorded so far, even the ones for turns that
+    had already finished and flushed their own video to disk."""
+    screencast = library_module.Screencast(take_dir=tmp_path)
+    timeline_path = Path(tmp_path) / "timeline.json"
+
+    screencast.start_observer("cockpit", "http://example.test/cockpit")
+    assert timeline_path.exists()  # saved before any turn -- no .close() yet
+
+    screencast.start_actor_turn("author", title="Author")
+    screencast.end_actor_turn()
+
+    from screencast.timeline import Timeline
+
+    # Still without calling the listener's close(): the crash this guards
+    # against would happen well before Robot ever gets to call it.
+    loaded = Timeline.load(timeline_path)
+    assert loaded.actor_clip("author")
+    assert loaded.events_of("turn_end")
 
 
 def test_no_record_mode_skips_video_but_still_builds_timeline(tmp_path):

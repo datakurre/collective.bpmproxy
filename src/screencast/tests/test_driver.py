@@ -49,6 +49,18 @@ Broken
     [Teardown]    End Actor Turn
 """
 
+ORDINARY_FAILURE_STORY = """\
+*** Settings ***
+Library    screencast.Screencast    take_dir=${TAKE_DIR}    record=${RECORD}
+
+*** Test Cases ***
+Broken
+    Fail    something in the page did not look right
+
+After
+    No Operation
+"""
+
 
 def write_story(tmp_path, text, name="story.robot"):
     path = tmp_path / name
@@ -86,6 +98,26 @@ def test_run_failure_is_summarized_with_keyword_path(tmp_path):
     assert "Broken" in summary
     assert "Start Actor Turn" in summary
     assert "FatalError" in summary
+
+
+def test_run_stops_after_the_first_failed_task(tmp_path):
+    """(regression, PR #14 review finding #8) run() used to run every task
+    regardless of an earlier failure -- each carries its own Wait Until
+    Keyword Succeeds retries, so a broken early task meant burning through
+    every later one's retry loops for nothing. Uses an ordinary keyword
+    failure (Fail), not one of screencast.library's own FatalErrors --
+    robot.api.FatalError already aborts the whole run by itself, which
+    would make this test pass regardless of whether run() asks for
+    exitonfailure."""
+    story = write_story(tmp_path, ORDINARY_FAILURE_STORY)
+    code, output = driver.run(story, take_dir=tmp_path / "take", quiet=True)
+    assert code != 0
+    from robot.api import ExecutionResult
+
+    result = ExecutionResult(str(output))
+    statuses = {test.name: test.status for test in result.suite.all_tests}
+    assert statuses["Broken"] == "FAIL"
+    assert statuses["After"] != "PASS"
 
 
 def test_summarize_failures_reports_all_tasks_passed(tmp_path):

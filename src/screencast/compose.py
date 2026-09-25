@@ -139,33 +139,36 @@ class ComposeError(ValueError):
 
 
 def _view_at(t, focus_events, turns, tolerance=1e-6):
-    """Resolve (kind, actor_or_None) in effect at time `t`. `turns` is a
-    list of (actor, start, end) sorted by start."""
+    """Resolve (kind, turn_id_or_None, scale, margin, border) in effect at
+    time `t`. `turns` is a list of (turn_id, actor, start, end) sorted by
+    start -- keyed by `turn_id` (a clip, i.e. one turn), not by `actor`
+    name, since one actor can play more than one turn (e.g. "reception" in
+    contact_form.robot has three) and two turns never share a clip."""
     active_turn = None
     most_recent_turn = None
-    for actor, start, end in turns:
+    for turn_id, actor, start, end in turns:
         if start - tolerance <= t < end + tolerance:
-            active_turn = (actor, start, end)
+            active_turn = (turn_id, actor, start, end)
         if start <= t + tolerance:
-            most_recent_turn = (actor, start, end)
+            most_recent_turn = (turn_id, actor, start, end)
 
     # The most recent focus event at or before `t`, scoped to the active
     # turn's own window when inside one (a focus event from a previous
     # turn or gap does not leak into a later turn's default).
-    scope_start = active_turn[1] if active_turn else 0.0
+    scope_start = active_turn[2] if active_turn else 0.0
     latest_focus = None
     for event in focus_events:
         if event["time"] <= t + tolerance and event["time"] >= scope_start - tolerance:
             latest_focus = event
 
     if active_turn:
-        actor = active_turn[0]
+        turn_id = active_turn[0]
         if latest_focus is None:
-            return ("actor", actor, DEFAULT_SCALE, DEFAULT_MARGIN, DEFAULT_BORDER)
+            return ("actor", turn_id, DEFAULT_SCALE, DEFAULT_MARGIN, DEFAULT_BORDER)
         if latest_focus["view"] == "actor":
             return (
                 "actor",
-                actor,
+                turn_id,
                 latest_focus.get("scale", DEFAULT_SCALE),
                 latest_focus.get("margin", DEFAULT_MARGIN),
                 latest_focus.get("border", DEFAULT_BORDER),
@@ -179,15 +182,21 @@ def _view_at(t, focus_events, turns, tolerance=1e-6):
         )
 
     # A gap: no active turn.
-    inset_actor = most_recent_turn[0] if most_recent_turn else None
+    inset_turn_id = most_recent_turn[0] if most_recent_turn else None
     if latest_focus is None:
-        return ("observer", inset_actor, DEFAULT_SCALE, DEFAULT_MARGIN, DEFAULT_BORDER)
+        return (
+            "observer",
+            inset_turn_id,
+            DEFAULT_SCALE,
+            DEFAULT_MARGIN,
+            DEFAULT_BORDER,
+        )
     view = "actor" if latest_focus["view"] == "actor" else "observer"
-    if view == "actor" and inset_actor is None:
+    if view == "actor" and inset_turn_id is None:
         view = "observer"  # nothing to focus on yet
     return (
         view,
-        inset_actor,
+        inset_turn_id,
         latest_focus.get("scale", DEFAULT_SCALE),
         latest_focus.get("margin", DEFAULT_MARGIN),
         latest_focus.get("border", DEFAULT_BORDER),
@@ -201,36 +210,54 @@ def compose(take_dir, output=None):
     observer_video = take_dir / timeline.observer["video"]
     observer_duration = ffprobe_duration(observer_video)
 
+    # `timeline.actors` has one clip per turn (not per actor -- an actor
+    # with several turns, e.g. "reception" in contact_form.robot, gets one
+    # clip per turn), appended in occurrence order by end_actor_turn right
+    # after it appends that turn's own turn_end event; turn_start events are
+    # appended in the same occurrence order when the turn opens. Turns never
+    # overlap (Start/End Actor Turn's one-at-a-time contract), so the Nth
+    # turn_start pairs with the Nth turn_end and the Nth actor clip -- use
+    # that shared index as `turn_id` instead of grouping by actor name,
+    # which would collapse an actor's earlier turns into their last one.
+    starts = timeline.events_of("turn_start")
+    ends = timeline.events_of("turn_end")
+    if len(starts) != len(timeline.actors) or len(ends) != len(timeline.actors):
+        raise ComposeError(
+            f"turn_start ({len(starts)}), turn_end ({len(ends)}), and actor "
+            f"clip ({len(timeline.actors)}) counts disagree -- was this take "
+            "recorded with record=True for every turn?"
+        )
+
+    clips = []
     turns = []
-    clip_by_actor = {}
-    for clip in timeline.actors:
+    for turn_id, clip in enumerate(timeline.actors):
         path = take_dir / clip["video"]
         duration = ffprobe_duration(path)
-        clip_by_actor[clip["actor"]] = {
-            "path": path,
-            "offset": clip["offset"],
-            "duration": duration,
-        }
-    starts = {e["actor"]: e["time"] for e in timeline.events_of("turn_start")}
-    ends = {e["actor"]: e["time"] for e in timeline.events_of("turn_end")}
-    for actor, clip in clip_by_actor.items():
-        start = starts.get(actor, clip["offset"])
-        end = ends.get(actor, start + clip["duration"])
-        turns.append((actor, start, end))
-    turns.sort(key=lambda t: t[1])
+        clips.append(
+            {
+                "actor": clip["actor"],
+                "path": path,
+                "offset": clip["offset"],
+                "duration": duration,
+            }
+        )
+        turns.append(
+            (turn_id, clip["actor"], starts[turn_id]["time"], ends[turn_id]["time"])
+        )
+    turns.sort(key=lambda t: t[2])
 
     # Guard against real overlaps (see screencast.timeline.OVERLAP_TOLERANCE):
     # two turns whose windows genuinely overlap by more than encoder-startup
     # noise mean two persona contexts were open at once, contradicting
     # Start Actor Turn/End Actor Turn's one-at-a-time contract.
-    for (actor_a, _, end_a), (actor_b, start_b, _) in zip(
+    for (turn_a, actor_a, _, end_a), (turn_b, actor_b, start_b, _) in zip(
         turns, turns[1:], strict=False
     ):
         if start_b < end_a - OVERLAP_TOLERANCE:
             raise ComposeError(
-                f"Turn {actor_a!r} overlaps {actor_b!r} by "
-                f"{end_a - start_b:.2f}s -- Start/End Actor Turn should never "
-                "leave two contexts open at once."
+                f"Turn {turn_a} ({actor_a!r}) overlaps turn {turn_b} "
+                f"({actor_b!r}) by {end_a - start_b:.2f}s -- Start/End Actor "
+                "Turn should never leave two contexts open at once."
             )
 
     def clamp(t):
@@ -251,10 +278,14 @@ def compose(take_dir, output=None):
         (dict(e, time=clamp(e["time"])) for e in timeline.events_of("hold")),
         key=lambda e: e["time"],
     )
-    turns = [(actor, clamp(start), clamp(end)) for actor, start, end in turns]
+    turns = [
+        (turn_id, actor, clamp(start), clamp(end))
+        for turn_id, actor, start, end in turns
+    ]
+    turns_by_id = {turn_id: (start, end) for turn_id, _actor, start, end in turns}
 
     boundaries = {0.0, observer_duration}
-    for _actor, start, end in turns:
+    for _turn_id, _actor, start, end in turns:
         boundaries.add(start)
         boundaries.add(end)
     for event in focus_events + chapter_events + hold_events:
@@ -267,9 +298,9 @@ def compose(take_dir, output=None):
     filters = []
     segment_labels = []
     inputs = ["-i", str(observer_video)]
-    input_index_by_actor = {}
-    for actor, clip in clip_by_actor.items():
-        input_index_by_actor[actor] = len(inputs) // 2
+    input_index_by_turn = {}
+    for turn_id, clip in enumerate(clips):
+        input_index_by_turn[turn_id] = len(inputs) // 2
         inputs += ["-i", str(clip["path"])]
     title_inputs = {}  # cache key -> input index
 
@@ -287,9 +318,9 @@ def compose(take_dir, output=None):
             f"{scale_to_size},fps={FPS}[{label}]"
         )
 
-    def actor_slice(label, actor, start, end):
-        clip = clip_by_actor[actor]
-        index = input_index_by_actor[actor]
+    def turn_slice(label, turn_id, start, end):
+        clip = clips[turn_id]
+        index = input_index_by_turn[turn_id]
         rel_start = max(0.0, start - clip["offset"])
         rel_end = min(clip["duration"], max(rel_start + 0.001, end - clip["offset"]))
         filters.append(
@@ -297,9 +328,9 @@ def compose(take_dir, output=None):
             f"setpts=PTS-STARTPTS,{scale_to_size},fps={FPS}[{label}]"
         )
 
-    def frozen_actor_slice(label, actor, at, duration):
-        clip = clip_by_actor[actor]
-        index = input_index_by_actor[actor]
+    def frozen_turn_slice(label, turn_id, at, duration):
+        clip = clips[turn_id]
+        index = input_index_by_turn[turn_id]
         freeze_at = max(0.0, min(clip["duration"] - 0.04, at - clip["offset"]))
         filters.append(
             f"[{index}:v]trim=start={freeze_at:.3f}:end={freeze_at + 0.04:.3f},"
@@ -354,12 +385,12 @@ def compose(take_dir, output=None):
         for hold in hold_events:
             if abs(hold["time"] - t) >= 1e-6:
                 continue
-            view, inset_actor, _scale, _margin, _border = _view_at(
+            view, inset_turn_id, _scale, _margin, _border = _view_at(
                 max(0.0, t - 1e-6), focus_events, turns
             )
             main_label = next_label("holdmain")
-            if hold.get("view", view) == "actor" and inset_actor:
-                frozen_actor_slice(main_label, inset_actor, t, hold["duration"])
+            if hold.get("view", view) == "actor" and inset_turn_id is not None:
+                frozen_turn_slice(main_label, inset_turn_id, t, hold["duration"])
             else:
                 frozen_observer_slice(main_label, t, hold["duration"])
             segment_labels.append(main_label)
@@ -372,13 +403,13 @@ def compose(take_dir, output=None):
         emit_chapters_at(start)
         emit_holds_at(start)
 
-        view, inset_actor, scale, margin, border = _view_at(
+        view, inset_turn_id, scale, margin, border = _view_at(
             (start + end) / 2, focus_events, turns
         )
         label = next_label("seg")
         if view == "actor":
             main_label = next_label("main")
-            actor_slice(main_label, inset_actor, start, end)
+            turn_slice(main_label, inset_turn_id, start, end)
             inset_label = next_label("inset")
             observer_slice(f"{inset_label}raw", start, end)
             pad_inset(f"{inset_label}raw", inset_label, scale)
@@ -386,19 +417,18 @@ def compose(take_dir, output=None):
         else:
             main_label = next_label("main")
             observer_slice(main_label, start, end)
-            if inset_actor is None:
+            if inset_turn_id is None:
                 filters.append(f"[{main_label}]null[{label}]")
             else:
                 inset_label = next_label("inset")
-                clip = clip_by_actor[inset_actor]
-                turn_end = ends.get(inset_actor, clip["offset"] + clip["duration"])
+                _turn_start, turn_end = turns_by_id[inset_turn_id]
                 if end <= turn_end + 1e-6:
                     # The actor's own turn is technically still open (focus
                     # was flipped mid-turn): show their live footage.
-                    actor_slice(f"{inset_label}raw", inset_actor, start, end)
+                    turn_slice(f"{inset_label}raw", inset_turn_id, start, end)
                 else:
-                    frozen_actor_slice(
-                        f"{inset_label}raw", inset_actor, turn_end, end - start
+                    frozen_turn_slice(
+                        f"{inset_label}raw", inset_turn_id, turn_end, end - start
                     )
                 pad_inset(f"{inset_label}raw", inset_label, scale)
                 overlay(main_label, inset_label, margin, label)

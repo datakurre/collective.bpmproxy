@@ -13,14 +13,19 @@ Checks:
   from the *real* measured duration (`fps >= rows*cols / duration`), so a
   longer take than the last one still gets full coverage instead of a
   stale, undersized rate.
-- **Dead air**: `freezedetect` finds frozen runs; their total is compared
-  against the "expected freeze budget" (the sum of chapter and hold
-  durations -- title cards and holds are the only segments the composer
-  ever freezes on purpose, plus a "recorded" hold's own real elapsed wait,
-  e.g. the return-to-observer pause after a turn -- see library.py's
-  end_actor_turn and predicted_duration()'s docstring). More frozen time
-  than that budget plus DEAD_AIR_TOLERANCE means something outside a
-  declared hold produced dead air.
+- **Dead air** (`severity: "warning"`, does not fail `ok`): `freezedetect`
+  finds frozen runs; their total is compared against the "expected freeze
+  budget" (the sum of chapter and hold durations -- title cards and holds
+  are the only segments the composer ever freezes on purpose, plus a
+  "recorded" hold's own real elapsed wait, e.g. the return-to-observer
+  pause after a turn -- see library.py's end_actor_turn and
+  predicted_duration()'s docstring). More frozen time than that budget
+  plus DEAD_AIR_TOLERANCE is reported as a finding, but only a warning:
+  on a real recording, `freezedetect`'s whole-frame pixel comparison
+  can't see cursor-only motion at 1920x1080, so ordinary human-paced
+  turns routinely false-positive as "frozen". Judging this from the
+  timeline instead of pixels is tracked in
+  datakurre/collective.bpmproxy#15; until then this check is advisory.
 - **Blank frames**: `blackdetect` on the composed output, tuned to
   near-pure black (`pix_th=0.02`) rather than the default's
   dark-theme-triggering 10% luma threshold, since this project's own
@@ -281,12 +286,22 @@ def verify(take_dir, output_video=None, contact_sheet=None, rows=6, cols=5):
         findings.append(
             {
                 "check": "dead_air",
-                "severity": "error",
+                # Not "error": on a real recording, freezedetect compares
+                # mean pixel difference across the whole composited frame,
+                # and a cursor move/click ring is far below any usable
+                # threshold at 1920x1080 -- ordinary human-paced turns
+                # (hover, read, click) false-positive as "frozen" even
+                # though nothing is wrong. Downgraded to a warning (still
+                # reported, but does not fail ok/the exit code) until this
+                # is judged from the timeline instead of pixels -- see
+                # datakurre/collective.bpmproxy#15.
+                "severity": "warning",
                 "message": (
                     f"{total_freeze:.2f}s of frozen video, but only "
                     f"{freeze_budget:.2f}s is accounted for by chapter/hold "
                     "events -- something outside a declared hold produced "
-                    "dead air"
+                    "dead air (or this is cursor-only motion freezedetect "
+                    "can't see -- see datakurre/collective.bpmproxy#15)"
                 ),
             }
         )

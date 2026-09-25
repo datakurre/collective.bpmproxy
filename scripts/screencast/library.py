@@ -35,6 +35,11 @@ DEFAULT_VIEWPORT = {"width": 1920, "height": 1080}
 DEFAULT_OBSERVE_WAIT = 1.5
 DEFAULT_RETURN_TO_OBSERVER_WAIT = 6.0
 
+# RF BuiltIn keywords whose own success means an earlier failure nested
+# inside them was recovered, not real -- see _Listener.end_keyword. Only
+# the ones actually used by this project's stories/resources today.
+_RETRY_WRAPPER_KEYWORDS = frozenset({"Wait Until Keyword Succeeds"})
+
 
 class _Session:
     """Module-level Playwright/timeline state. See the module docstring."""
@@ -81,9 +86,20 @@ class _Listener:
 
     def __init__(self):
         self._pending_dump_paths = None
+        self._retry_wrapper_stack = []
 
     def start_test(self, data, result):
         self._pending_dump_paths = None
+        self._retry_wrapper_stack = []
+
+    def start_keyword(self, data, result):
+        # Remember whether a dump was already pending *before* this retry
+        # wrapper (e.g. Wait Until Keyword Succeeds) started -- its own
+        # closing below only gets to clear a dump captured strictly during
+        # its own retries, never one that was already sitting there from
+        # something earlier and unrelated.
+        if data.name in _RETRY_WRAPPER_KEYWORDS:
+            self._retry_wrapper_stack.append(self._pending_dump_paths is not None)
 
     def end_keyword(self, data, result):
         # Dump immediately, on the *first* failure in this test, while the
@@ -92,10 +108,30 @@ class _Listener:
         # which would leave nothing left to screenshot. A keyword retried
         # inside Wait Until Keyword Succeeds reports FAIL on every failed
         # attempt even when a later attempt succeeds and the task passes
-        # overall, so only the first attempt's dump is kept as "pending" --
-        # end_test discards it if the task did not, in the end, fail.
-        if result.status == "FAIL" and self._pending_dump_paths is None:
-            self._pending_dump_paths = _dump_failure_artifacts(result.name)
+        # overall, so only the first attempt's dump is kept as "pending".
+        #
+        # That pending dump must not block a later, *different* failure in
+        # the same test from getting its own: the common shape here is
+        # Open Task -> Wait For Task polls and fails a few times, then
+        # succeeds, and only then does e.g. Human Click actually fail for
+        # real. Depth alone can't tell "the retry wrapper finally closing"
+        # apart from "some later, unrelated keyword happening to close at
+        # the same nesting depth" (e.g. the [Teardown] right after) -- so
+        # watch for the retry wrapper *by name* instead: when it succeeds
+        # having had no dump pending at its own start, whatever got dumped
+        # during its retries was recovered, so clear it.
+        had_pending_before_wrapper = None
+        if data.name in _RETRY_WRAPPER_KEYWORDS:
+            had_pending_before_wrapper = self._retry_wrapper_stack.pop()
+        if result.status == "FAIL":
+            if self._pending_dump_paths is None:
+                self._pending_dump_paths = _dump_failure_artifacts(result.name)
+        elif (
+            had_pending_before_wrapper is False and self._pending_dump_paths is not None
+        ):
+            for path in self._pending_dump_paths:
+                path.unlink(missing_ok=True)
+            self._pending_dump_paths = None
 
     def end_test(self, data, result):
         if result.status != "FAIL" and self._pending_dump_paths:

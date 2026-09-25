@@ -92,6 +92,27 @@ Genuinely Fails
     [Teardown]    End Observer
 """
 
+RECOVERS_THEN_REALLY_FAILS_STORY = """\
+*** Settings ***
+Library    screencast.Screencast    take_dir=${TAKE_DIR}    record=${RECORD}
+
+*** Test Cases ***
+Recovers Then Really Fails
+    Start Observer    observer    http://example.test
+    Wait Until Keyword Succeeds    5x    0.01s    Fail Twice Then Pass
+    Should Be Equal    a    b
+    [Teardown]    End Observer
+
+*** Keywords ***
+Fail Twice Then Pass
+    ${count}=    Get Variable Value    ${ATTEMPT_COUNT}    ${0}
+    ${count}=    Evaluate    ${count} + 1
+    Set Suite Variable    ${ATTEMPT_COUNT}    ${count}
+    IF    ${count} < 3
+        Fail    not yet
+    END
+"""
+
 
 def write_story(tmp_path, text, name="story.robot"):
     path = tmp_path / name
@@ -175,6 +196,25 @@ def test_failure_artifacts_dumped_once_per_task_not_per_retry_attempt(tmp_path):
     code, _ = driver.run(story, take_dir=take_dir, quiet=True)
     assert code != 0
     assert len(list(take_dir.glob("failure-*.txt"))) == 1
+
+
+def test_a_later_genuine_failure_gets_its_own_dump_not_a_recovered_ones(tmp_path):
+    """(regression, PR #14 follow-up review, reproduced) The one dump slot
+    per task used to be claimed by whichever failure happened first, even
+    a *recovered* one -- a Wait Until Keyword Succeeds attempt that later
+    succeeds. That left a genuine failure later in the same task with no
+    dump of its own (the slot was taken), and the stale recovered
+    attempt's artifacts sitting there instead. This is the shape it
+    happens in for real: Open Task -> Wait For Task polls and fails a few
+    times, then succeeds, and only then does e.g. a click actually fail."""
+    take_dir = tmp_path / "take"
+    story = write_story(tmp_path, RECOVERS_THEN_REALLY_FAILS_STORY)
+    code, _ = driver.run(story, take_dir=take_dir, quiet=True)
+    assert code != 0
+
+    dumps = list(take_dir.glob("failure-*.txt"))
+    assert len(dumps) == 1
+    assert "keyword: Should Be Equal" in dumps[0].read_text()
 
 
 def test_summarize_failures_reports_all_tasks_passed(tmp_path):

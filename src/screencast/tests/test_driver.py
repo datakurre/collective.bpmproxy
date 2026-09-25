@@ -124,6 +124,26 @@ def test_probe_runs_one_keyword_against_the_live_session(tmp_path):
     assert library_module._SESSION.observer_page is not None
 
 
+def test_probe_passes_take_dir_and_record_as_named_library_args(tmp_path):
+    """(regression, PR #14 review finding #5) probe() used to build the
+    library import's args with `:` instead of `=` -- Robot Framework only
+    recognizes `name=value` as named-argument syntax for a library import,
+    so the whole string ("take_dir:/x") was passed as one positional
+    argument instead: take_dir ended up holding that literal string, and
+    record -- run through _as_bool() -- was always truthy (any non-empty
+    string) regardless of the value actually asked for."""
+    take_dir = tmp_path / "take"
+    driver.probe(
+        None,
+        "Start Observer",
+        ["observer", "http://example.test"],
+        take_dir=take_dir,
+        record=False,
+    )
+    assert library_module._SESSION.take_dir == take_dir
+    assert library_module._SESSION.record is False
+
+
 def test_probe_reuses_the_browser_across_calls(tmp_path):
     driver.probe(
         None, "Start Observer", ["observer", "http://example.test"], take_dir=tmp_path

@@ -7,8 +7,9 @@ verifier (screencast.verify) need. It records, for one take:
 - one entry per recorded actor turn, with its measured start offset on the
   observer's own clock;
 - a chronological list of edit events (turn_start/turn_end, chapter, focus,
-  hold) carrying real timestamps taken from keyword start/end times, not
-  values computed and immediately discarded by the recording run.
+  hold, caption) carrying real timestamps taken from keyword start/end
+  times, not values computed and immediately discarded by the recording
+  run.
 
 See scripts/screencast/schema/timeline.schema.json for the JSON Schema this
 module validates against, and its field-level documentation.
@@ -23,7 +24,9 @@ VERSION = 2
 
 SCHEMA_PATH = Path(__file__).with_name("schema") / "timeline.schema.json"
 
-EVENT_TYPES = frozenset({"turn_start", "turn_end", "chapter", "focus", "hold"})
+EVENT_TYPES = frozenset(
+    {"turn_start", "turn_end", "chapter", "focus", "hold", "caption"}
+)
 
 # Back-to-back turns can leave a near-zero real-time gap, where ffprobe's
 # measured clip duration and the wall-clock offsets recorded via

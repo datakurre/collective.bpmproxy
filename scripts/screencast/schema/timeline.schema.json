@@ -69,7 +69,8 @@
         { "$ref": "#/$defs/turnEndEvent" },
         { "$ref": "#/$defs/chapterEvent" },
         { "$ref": "#/$defs/focusEvent" },
-        { "$ref": "#/$defs/holdEvent" }
+        { "$ref": "#/$defs/holdEvent" },
+        { "$ref": "#/$defs/captionEvent" }
       ]
     },
     "turnStartEvent": {
@@ -146,6 +147,22 @@
           "type": "boolean",
           "default": false,
           "description": "True for a hold the library itself derived from real elapsed recording time (e.g. the return-to-observer wait after a turn), as opposed to a story's own Hold call. The composer does not insert a synthetic freeze for one (that time is already real footage in the observer clip); the verifier's dead_air check still budgets for it."
+        }
+      }
+    },
+    "captionEvent": {
+      "type": "object",
+      "required": ["type", "time", "text"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "caption" },
+        "time": { "type": "number", "minimum": 0 },
+        "text": { "type": "string" },
+        "duration": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 4.0,
+          "description": "How long the cue stays on screen, in seconds. The composer maps 'time' (raw, observer-clock) to the cue's position in the composed output -- adding every inserted chapter/hold segment at or before it -- but does not otherwise adjust 'duration'."
         }
       }
     }

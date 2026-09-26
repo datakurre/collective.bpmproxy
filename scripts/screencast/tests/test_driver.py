@@ -523,3 +523,12 @@ def test_repl_on_failure_reports_a_failing_probe_and_keeps_looping(tmp_path):
     browser = FakePlaywright.instances[0].browser
     actor_page = browser.contexts[1].pages[0]
     assert actor_page.url == "http://after-failing-probes.example.test"
+
+
+def test_check_leaves_nothing_behind_in_the_working_directory(tmp_path, monkeypatch):
+    """`check` used to write a timestamped take directory into the current
+    directory on every run (default_take_dir(base=cwd))."""
+    story = write_story(tmp_path, PASSING_STORY)
+    monkeypatch.chdir(tmp_path)
+    assert driver.check(story) == []
+    assert sorted(path.name for path in tmp_path.iterdir()) == [story.name]

@@ -21,6 +21,7 @@ from screencast.library import _RECOVERING_WRAPPER_KEYWORDS
 from screencast.library import Screencast
 import datetime
 import sys
+import tempfile
 
 
 def default_take_dir(story, base=None):
@@ -303,7 +304,13 @@ def check(story, take_dir=None):
     dry-run skips real keyword bodies. Cheaper than a real run when the
     browser was never the problem. Returns a list of "task: message"
     strings; empty means it checked out clean."""
-    take_dir = Path(take_dir) if take_dir else default_take_dir(story, base=Path.cwd())
+    if take_dir is None:
+        # Nothing here is worth keeping: a dry run has no recording, and a
+        # timestamped directory in the current directory per check just
+        # litters the repository.
+        with tempfile.TemporaryDirectory(prefix="screencast-check-") as scratch:
+            return check(story, take_dir=scratch)
+    take_dir = Path(take_dir)
     take_dir.mkdir(parents=True, exist_ok=True)
     output = take_dir / "check-output.json"
     suite = TestSuite.from_file_system(str(story))

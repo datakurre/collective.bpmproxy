@@ -46,9 +46,21 @@ Run from the repository root:
 devenv up -d
 until curl -sf http://127.0.0.1:8081/engine-rest/engine >/dev/null; do sleep 5; done
 make bootstrap-site
-make start
+make start &   # it blocks: use a second terminal instead of the &
 until curl -sf http://127.0.0.1:8080/Plone >/dev/null; do sleep 3; done
 ```
+
+On a clean checkout `make reset-site` and `make bootstrap-site` create the
+Zope instance first (`make instance`), so this sequence works as written.
+The first, cold `devenv up -d` also downloads Operaton's Maven
+dependencies, which takes several minutes; if that stalls, see
+[devenv-browser-smoke.md](devenv-browser-smoke.md).
+
+Or do all of it in one command: `make demo-stack STORY=renovation_project` brings up the
+services, the Zope instance, the site and this scenario's demo profile, then
+starts Plone in the background (logs in `var/demo-stack/`);
+`make demo-stack-down` stops them again. It refuses to run when something
+else already answers on port 8080.
 
 Deploy the case process:
 
@@ -64,7 +76,7 @@ deployed process, and start Plone again:
 
 ```sh
 make bootstrap-renovation-demo
-make start
+make start &   # it blocks: use a second terminal instead of the &
 until curl -sf http://127.0.0.1:8080/Plone >/dev/null; do sleep 3; done
 ```
 
@@ -93,11 +105,12 @@ the case-creation process instance are visible.
 6. A case manager closes the Plone case through its `close-case` workflow transition.
 7. The close message reaches the main case process and ends it.
 
-Run the story with the screencast driver (`PYTHONPATH=scripts`, or from
-inside `make shell`):
+Run the story with the screencast driver. `make screencast STORY=<story>` does
+this and then `compose` and `verify`; `playwright-python` is the wrapper (from
+`devenv.nix`) that puts the engine and Playwright on the path:
 
 ```sh
-python -m screencast run scripts/screencasts/renovation_project.robot
+playwright-python -m screencast run scripts/screencasts/renovation_project.robot
 ```
 
 The recording follows the same conventions as the contact-form and
@@ -116,7 +129,7 @@ review-process scenarios (see `scripts/screencast/` and
   exception in docs/AGENTS.md, forcing a refresh past auto-refresh's own
   polling interval right after a review that can otherwise complete between
   polls (`Observe    reload=${True}`).
-- `python -m screencast compose` writes the composite as `output.webm` in
+- `playwright-python -m screencast compose` writes the composite as `output.webm` in
   the take directory; the old hard-coded `final_focus_switch_at = 117.0` is
   gone -- the composer's default (observer main between turns, unless a
   `focus` event says otherwise) already does what that constant was for.
@@ -134,11 +147,14 @@ Written to `var/screencasts/renovation_project/<take>/` (gitignored):
 | `page@*.webm` | The observer (Cockpit) recording and each actor turn's own clip |
 | `timeline.json` | Schema v2 timeline: observer/actor clips, chapter/focus/hold events |
 | `output.webm` | The composite, actor turns as picture-in-picture over the Cockpit observer |
-| `report.json` / `contact-sheet.png` | `python -m screencast verify`'s findings and contact sheet |
+| `report.json` / `contact-sheet.png` | `playwright-python -m screencast verify`'s findings and contact sheet |
 
-The doc-illustration screenshots below are the exception: the story writes
-them straight to `docs/`, since these specific names are the ones this
-document actually uses.
+The doc-illustration screenshots below are written under the take too
+(`var/screencasts/renovation_project/<take>/screenshots/`). They differ slightly on
+every run, so a run never overwrites the tracked copies in `docs/` by
+accident; after a take you are happy with,
+`make promote-screenshots STORY=renovation_project` copies the latest ones into `docs/`
+(review the diff, then commit).
 
 | Screenshot | Description |
 | --- | --- |
@@ -152,8 +168,8 @@ document actually uses.
 The story's exit status alone does not verify the video -- `verify` does:
 
 ```sh
-python -m screencast compose var/screencasts/renovation_project/<take>/
-python -m screencast verify var/screencasts/renovation_project/<take>/
+playwright-python -m screencast compose var/screencasts/renovation_project/<take>/
+playwright-python -m screencast verify var/screencasts/renovation_project/<take>/
 ```
 
 `verify` derives its contact-sheet sampling rate from the take's own measured

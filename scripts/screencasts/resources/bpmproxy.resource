@@ -142,26 +142,46 @@ Wait For Task
     ...    Go To -- there is nothing to refresh in place, the whole point is
     ...    to see a task portlet that did not exist before) until a task
     ...    named `task_name` is visible, then return its locator's page.
+    [Tags]    screencast:wait
     [Arguments]    ${task_name}    ${base_url}=${BASE_URL}    ${retries}=20x    ${interval}=3s
     Wait Until Keyword Succeeds    ${retries}    ${interval}    Task Is Visible    ${task_name}    ${base_url}
 
 Task Is Visible
+    [Documentation]    One polling attempt for `Wait For Task`. A Bpm Proxy
+    ...    page lists its tasks under a "Task list" tab that is hidden
+    ...    until clicked; a Tasks portlet (other pages) has no such tab.
+    ...    Match an *anchor*, not bare text: with the diagram enabled,
+    ...    `text=<task name>` first resolves to the BPMN diagram's own
+    ...    (hidden) SVG label and never reaches the task link.
     [Arguments]    ${task_name}    ${base_url}
     Go To    ${base_url}
-    Wait Until Visible    text=${task_name}    timeout=1000
+    ${tabs}=    Count Matches    role=link[name="Task list"s]
+    IF    ${tabs} > 0
+        Human Click    role=link[name="Task list"s]
+    END
+    Wait Until Visible    a:has-text("${task_name}")    timeout=1000
 
 Open Task
-    [Documentation]    Wait for, then open, a task named `task_name`.
-    [Arguments]    ${task_name}    ${base_url}=${BASE_URL}
+    [Documentation]    Wait for, then open, a task named `task_name`. When
+    ...    several tasks share the name (one per process instance), `index`
+    ...    picks one: 0 is the first row, -1 the last.
+    [Arguments]    ${task_name}    ${base_url}=${BASE_URL}    ${index}=0
     Wait For Task    ${task_name}    base_url=${base_url}
-    Human Click    text=${task_name}
+    Human Click    a:has-text("${task_name}")    index=${index}
 
 Submit Task Form
     [Documentation]    Click a task form's submit button by its visible
     ...    label (forms in this project use varied labels: "Submit Review",
-    ...    "Complete Review", "Assign Reviewers", ...).
-    [Arguments]    ${button_label}=Submit
+    ...    "Complete Review", "Assign Reviewers", ...), then require that the
+    ...    submit went through: the page must leave the task form. A form
+    ...    that rejected the submit (a form-js field that failed validation)
+    ...    fails *here*, with the visible message, instead of passing and
+    ...    breaking a later, unrelated turn.
+    [Arguments]    ${button_label}=Submit    ${timeout}=15s
+    ${form_url}=    Get Url
     Human Click    role=button[name="${button_label}"]
+    Wait For Navigation Away    ${form_url}    error_selector=.fjs-form-field-error
+    ...    timeout=${timeout}
 
 Wait For Workflow State
     [Documentation]    Poll a document's URL until its workflow state label
@@ -173,6 +193,7 @@ Wait For Workflow State
     ...    whose page has no Plone login session and so can never see a
     ...    still-private document's state label -- the poll would just
     ...    exhaust its retries and fail.
+    [Tags]    screencast:wait
     [Arguments]    ${doc_url}    ${state_text}    ${retries}=20x    ${interval}=3s
     ...    ${username}=manager    ${password}=manager
     Start Scratch Context    http_credentials=${{ {'username': $username, 'password': $password} }}

@@ -3,13 +3,14 @@
 This directory contains browser scenario recording documentation. Each
 scenario has its own Robot Framework story in `scripts/screencasts/` (built
 on the generic engine in `scripts/screencast/`) and its own `*-scenario.md`
-here. Run a story from the repository root, with `PYTHONPATH=scripts`
-(already set inside `make shell`):
+here. Run a story from the repository root with `playwright-python` (the wrapper in
+`devenv.nix`: it puts `scripts/` on the path and provides Playwright), or
+`make screencast STORY=...` for run, compose and verify in one go:
 
 ```sh
-python -m screencast run scripts/screencasts/renovation_project.robot
-python -m screencast run scripts/screencasts/review_process.robot
-python -m screencast run scripts/screencasts/contact_form.robot
+playwright-python -m screencast run scripts/screencasts/renovation_project.robot
+playwright-python -m screencast run scripts/screencasts/review_process.robot
+playwright-python -m screencast run scripts/screencasts/contact_form.robot
 ```
 
 See [renovation-project-scenario.md](renovation-project-scenario.md) and

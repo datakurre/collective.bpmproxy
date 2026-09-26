@@ -14,7 +14,7 @@ Resource          resources/bpmproxy.resource
 
 
 *** Variables ***
-${DOCS_DIR}           ${CURDIR}/../../docs
+${SHOTS_DIR}           ${TAKE_DIR}/screenshots
 ${ASSETS_DIR}         examples/renovation-project
 ${CASE_PROCESS_KEY}      renovation-case
 ${REVIEW_PROCESS_KEY}    renovation-page-review
@@ -74,7 +74,7 @@ Contractor Adds A Document
     ${page}=    Get Current Page
     ${document_url}=    Evaluate    $page.url.removesuffix("/view")
     Set Suite Variable    ${DOCUMENT_URL}    ${document_url}
-    Take Screenshot    ${DOCS_DIR}/renovation-project-document-added.png
+    Take Screenshot    ${SHOTS_DIR}/renovation-project-document-added.png
     [Teardown]    End Actor Turn
 
 Manager Shares The Document
@@ -86,7 +86,7 @@ Manager Shares The Document
 Cockpit Shows Parallel Review
     Open Process In Cockpit    ${REVIEW_PROCESS_KEY}
     Enter Latest Process Instance
-    Take Screenshot    ${DOCS_DIR}/renovation-project-cockpit-parallel-review.png
+    Take Screenshot    ${SHOTS_DIR}/renovation-project-cockpit-parallel-review.png
 
 Owner Approves The Document
     [Documentation]    Renovation case · 3 / 5.
@@ -126,7 +126,7 @@ Manager Closes The Case
     Human Click    role=link[name="State: Open"]
     Wait Until Visible    a[href*="workflow_action=close-case"]    index=-1
     Human Click    a[href*="workflow_action=close-case"]    index=-1
-    Take Screenshot    ${DOCS_DIR}/renovation-project-closed.png
+    Take Screenshot    ${SHOTS_DIR}/renovation-project-closed.png
     [Teardown]    End Actor Turn
 
 Wrap Up In Cockpit History
@@ -136,5 +136,5 @@ Wrap Up In Cockpit History
     ...    exception as above) so the completion is visible.
     Observe    reload=${True}
     Show Completed Instance In History    ${CASE_PROCESS_KEY}
-    Take Screenshot    ${DOCS_DIR}/renovation-project-cockpit-completed.png
+    Take Screenshot    ${SHOTS_DIR}/renovation-project-cockpit-completed.png
     End Observer

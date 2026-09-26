@@ -17,7 +17,7 @@ Resource          resources/bpmproxy.resource
 
 
 *** Variables ***
-${DOCS_DIR}       ${CURDIR}/../../docs
+${SHOTS_DIR}       ${TAKE_DIR}/screenshots
 ${ASSETS_DIR}     examples/review-process
 ${PROCESS_KEY}    example-plone-review-process
 ${DOC_TITLE}      Plone Conference 2027 unveiled!
@@ -55,14 +55,18 @@ Author Drafts And Submits
     Paste Text    iframe >>> body    ${DOC_BODY}
     Human Click    role=button[name="Save"]
     Workflow Transition    Submit for publication
-    Take Screenshot    ${DOCS_DIR}/review-process-submitted.png
+    Take Screenshot    ${SHOTS_DIR}/review-process-submitted.png
     [Teardown]    End Actor Turn
 
 Cockpit Shows Choose Reviewers
     [Documentation]    The instance now exists: enter it and show the
-    ...    "Choose reviewers" task before the Lead reviewer acts.
+    ...    "Choose reviewers" task before the Lead reviewer acts. Cockpit's
+    ...    instance table loads once and never polls, so re-enter the
+    ...    definition by in-app navigation first; the instance did not
+    ...    exist when it was opened at the start of the take.
+    Open Process In Cockpit    ${PROCESS_KEY}
     Enter Latest Process Instance
-    Take Screenshot    ${DOCS_DIR}/review-process-cockpit-choose-reviewers.png
+    Take Screenshot    ${SHOTS_DIR}/review-process-cockpit-choose-reviewers.png
 
 Lead Reviewer Assigns Reviewers
     [Documentation]    Review process · 2 / 5. The Lead reviewer
@@ -71,7 +75,9 @@ Lead Reviewer Assigns Reviewers
     ...    title=Lead reviewer    subtitle=Choosing reviewers for a parallel assessment
     Open Task    Choose reviewers
     Human Type    .fjs-taglist-input    reviewer1
+    Press Key    .fjs-taglist-input    Enter
     Human Type    .fjs-taglist-input    reviewer2
+    Press Key    .fjs-taglist-input    Enter
     Human Type    label=Instructions for reviewers
     ...    Please recommend or critique the location, without naming it.
     Submit Task Form    Assign Reviewers
@@ -80,7 +86,7 @@ Lead Reviewer Assigns Reviewers
 Cockpit Shows Parallel Review
     [Documentation]    The multi-instance sub-process now has two parallel
     ...    active tasks -- the visual point of this whole example.
-    Take Screenshot    ${DOCS_DIR}/review-process-cockpit-parallel-review.png
+    Take Screenshot    ${SHOTS_DIR}/review-process-cockpit-parallel-review.png
 
 Reviewer One Approves
     [Documentation]    Review process · 3 / 5.
@@ -122,9 +128,9 @@ Wrap Up In Cockpit History
     ...    instance in Cockpit's History view.
     Wait For Workflow State    ${DOC_URL}    Published
     Show Completed Instance In History    ${PROCESS_KEY}
-    Take Screenshot    ${DOCS_DIR}/review-process-cockpit-completed.png
+    Take Screenshot    ${SHOTS_DIR}/review-process-cockpit-completed.png
     End Observer
     Start Scratch Context    ${DOC_URL}
     ...    http_credentials=${{ {'username': 'manager', 'password': 'manager'} }}
-    Take Screenshot    ${DOCS_DIR}/review-process-published.png
+    Take Screenshot    ${SHOTS_DIR}/review-process-published.png
     End Scratch Context

@@ -9,6 +9,7 @@ from screencast import library as library_module
 from screencast.tests.fakes import fake_sync_playwright
 from screencast.tests.fakes import FakePlaywright
 import io
+import json
 import pytest
 import sys
 import types
@@ -523,3 +524,70 @@ def test_repl_on_failure_reports_a_failing_probe_and_keeps_looping(tmp_path):
     browser = FakePlaywright.instances[0].browser
     actor_page = browser.contexts[1].pages[0]
     assert actor_page.url == "http://after-failing-probes.example.test"
+
+
+def test_check_leaves_nothing_behind_in_the_working_directory(tmp_path, monkeypatch):
+    """`check` used to write a timestamped take directory into the current
+    directory on every run (default_take_dir(base=cwd))."""
+    story = write_story(tmp_path, PASSING_STORY)
+    monkeypatch.chdir(tmp_path)
+    assert driver.check(story) == []
+    assert sorted(path.name for path in tmp_path.iterdir()) == [story.name]
+
+
+def test_version_prints_the_resolved_versions(capsys):
+    from screencast.__main__ import main
+
+    with pytest.raises(SystemExit) as exit_info:
+        main(["--version"])
+    assert exit_info.value.code == 0
+    output = capsys.readouterr().out
+    for label in (
+        "python:",
+        "robotframework:",
+        "playwright:",
+        "jsonschema:",
+        "ffmpeg:",
+    ):
+        assert label in output
+    assert "robotframework: not installed" not in output
+
+
+WAIT_STORY = """\
+*** Settings ***
+Library    screencast.Screencast    take_dir=${TAKE_DIR}    record=${RECORD}
+
+*** Test Cases ***
+Waits
+    Start Observer    observer    http://example.test
+    Sleep    0.3s
+    Sleep    0.05s
+    Wait Until Keyword Succeeds    3x    0.01s    Tagged Poll
+    Tagged Poll
+
+*** Keywords ***
+Tagged Poll
+    [Tags]    screencast:wait
+    Sleep    0.3s
+"""
+
+
+def test_waiting_keywords_are_recorded_as_wait_events(tmp_path):
+    """The timeline records the story's own waiting, which `verify` judges
+    (datakurre/collective.bpmproxy#15): built-in waits, and any keyword a
+    project tags `screencast:wait`. Only the outermost wait counts (the
+    Sleep inside a tagged poll is part of it), and a wait too short to be
+    dead air (0.05s) is not recorded at all."""
+    take_dir = tmp_path / "take"
+    code, _ = driver.run(
+        write_story(tmp_path, WAIT_STORY), take_dir=take_dir, quiet=True
+    )
+    assert code == 0
+    timeline = json.loads((take_dir / "timeline.json").read_text())
+    waits = [e for e in timeline["events"] if e["type"] == "wait"]
+    assert [w["keyword"] for w in waits] == [
+        "Sleep",
+        "Wait Until Keyword Succeeds",
+        "Tagged Poll",
+    ]
+    assert all(w["duration"] >= 0.29 for w in waits)

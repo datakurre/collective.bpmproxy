@@ -70,7 +70,8 @@
         { "$ref": "#/$defs/chapterEvent" },
         { "$ref": "#/$defs/focusEvent" },
         { "$ref": "#/$defs/holdEvent" },
-        { "$ref": "#/$defs/captionEvent" }
+        { "$ref": "#/$defs/captionEvent" },
+        { "$ref": "#/$defs/waitEvent" }
       ]
     },
     "turnStartEvent": {
@@ -146,7 +147,25 @@
         "recorded": {
           "type": "boolean",
           "default": false,
-          "description": "True for a hold the library itself derived from real elapsed recording time (e.g. the return-to-observer wait after a turn), as opposed to a story's own Hold call. The composer does not insert a synthetic freeze for one (that time is already real footage in the observer clip); the verifier's dead_air check still budgets for it."
+          "description": "True for a hold the library itself derived from real elapsed recording time (e.g. the return-to-observer wait after a turn), as opposed to a story's own Hold call. The composer does not insert a synthetic freeze for one (that time is already real footage in the observer clip); the verifier's dead_air check does not count it as a wait."
+        }
+      }
+    },
+    "waitEvent": {
+      "type": "object",
+      "required": ["type", "time", "duration"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "wait" },
+        "time": { "type": "number", "minimum": 0 },
+        "duration": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Seconds the story spent waiting -- for a task to appear, a mail to arrive, a fixed Sleep -- during which nothing was being driven on screen. Recorded by the library's listener around the outermost waiting keyword (Sleep, Wait Until Keyword Succeeds, the engine's own waits, or any keyword tagged 'screencast:wait'); waits shorter than screencast.library.WAIT_MIN_RECORDED are not recorded. The composer ignores these events; the verifier's dead_air check judges them."
+        },
+        "keyword": {
+          "type": "string",
+          "description": "The waiting keyword's name, for the finding's message."
         }
       }
     },

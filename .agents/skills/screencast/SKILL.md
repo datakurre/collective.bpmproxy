@@ -29,8 +29,8 @@ scripts/screencast/            generic engine — no bpmproxy import anywhere
   timeline.py                    Timeline (EDL) schema v2: load/validate/save
   schema/timeline.schema.json    the JSON Schema timeline.py validates against
   compose.py                     timeline.json -> one ffmpeg filter_complex
-  verify.py                      ffprobe/freezedetect/blackdetect + contact sheet
-  driver.py, __main__.py         `python -m screencast` (see below)
+  verify.py                      ffprobe/blackdetect/wait events + contact sheet
+  driver.py, __main__.py         `playwright-python -m screencast` (see below)
 
 scripts/screencasts/           this project's own layer, built on the engine
   resources/bpmproxy.resource    project keywords (Prepare Fixtures, Open Task, ...)
@@ -42,8 +42,8 @@ scripts/screencasts/           this project's own layer, built on the engine
 var/screencasts/<story>/<take>/   everything a take writes (gitignored)
   page@*.webm                      observer + each actor turn's own clip
   timeline.json                    schema v2 — see *The timeline*, below
-  output.webm                      python -m screencast compose's output
-  report.json, contact-sheet.png   python -m screencast verify's output
+  output.webm                      playwright-python -m screencast compose's output
+  report.json, contact-sheet.png   playwright-python -m screencast verify's output
 ```
 
 Who writes what:
@@ -80,7 +80,7 @@ Library           screencast.Screencast    take_dir=${TAKE_DIR}    record=${RECO
 Resource          resources/bpmproxy.resource
 
 *** Variables ***
-${DOCS_DIR}       ${CURDIR}/../../docs
+${SHOTS_DIR}      ${TAKE_DIR}/screenshots    # promote to docs/ with `make promote-screenshots`
 ${ASSETS_DIR}     examples/my-scenario
 
 *** Tasks ***
@@ -146,7 +146,7 @@ times — a story never constructs it by hand.
 directly in `var/screencasts/<story>/<take>/timeline.json`, then:
 
 ```sh
-python -m screencast compose var/screencasts/<story>/<take>/
+playwright-python -m screencast compose var/screencasts/<story>/<take>/
 ```
 
 Composer defaults, if you're wondering why a take looks a certain way with no
@@ -158,8 +158,8 @@ of these defaults for a specific stretch.
 
 # The agent debug loop
 
-`python -m screencast` (`PYTHONPATH=scripts`, already set by
-`playwright-python` — see devenv.nix) is a thin CLI over
+`playwright-python -m screencast` (the wrapper in devenv.nix sets
+`PYTHONPATH=scripts` and provides Playwright; a bare `python` has neither) is a thin CLI over
 `scripts/screencast/driver.py`, whose functions are also plain Python if you
 want to call them directly:
 
@@ -210,8 +210,8 @@ want to call them directly:
    the *live* session a previous `run`/`probe` call left open, **as long as
    it happened in this same Python process**: the session is module-level
    state in `screencast.library`, not per-instance, and it does **not**
-   survive a process exit. Two separate `python -m screencast run` /
-   `python -m screencast probe` shell commands do *not* share a browser --
+   survive a process exit. Two separate `playwright-python -m screencast run` /
+   `playwright-python -m screencast probe` shell commands do *not* share a browser --
    each is its own process, so `probe` there always starts a fresh one.
    `--repl` reads one keyword call per line from stdin against the same
    session for as long as the process stays up, which is the practical way
@@ -247,8 +247,8 @@ gap this closes).
 frame, and a truncated composite all still exit 0. Always:
 
 ```sh
-python -m screencast compose var/screencasts/<story>/<take>/
-python -m screencast verify var/screencasts/<story>/<take>/
+playwright-python -m screencast compose var/screencasts/<story>/<take>/
+playwright-python -m screencast verify var/screencasts/<story>/<take>/
 ```
 
 `verify` writes `report.json` (`{"ok": bool, "findings": [...]}`) and
@@ -259,7 +259,7 @@ duration — never a stale hand-tuned value. Findings, by `check`:
 |---|---|
 | `stream` | Not exactly one 1920x1080 25fps video stream |
 | `duration` | Composed duration doesn't match the timeline's own prediction (observer length + every chapter/hold duration) |
-| `dead_air` | More frozen time (`freezedetect`) than the chapter+hold "freeze budget" accounts for — something outside a declared hold produced dead air |
+| `dead_air` | Judged from the timeline's `wait` events (recorded around `Sleep`, `Wait Until Keyword Succeeds`, the engine's own waits, and any keyword tagged `screencast:wait`): **error** for one wait over 10 s, warning when all waits together pass 30 s. Tag your own polling keywords: `[Tags]    screencast:wait`, or `@keyword(tags=[WAIT_TAG])` in Python |
 | `blank_frame` | A near-pure-black interval (`blackdetect`, tuned past this project's own dark-navy title cards) — also what missing fonts look like |
 | `empty_inset` | A sampled observer frame at some turn's midpoint is a near-uniform color — that turn's inset would be blank |
 

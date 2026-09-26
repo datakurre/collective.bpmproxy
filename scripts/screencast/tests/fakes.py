@@ -43,6 +43,9 @@ class FakeLocator:
     def uncheck(self):
         self.page.checked[self.selector] = False
 
+    def press(self, key):
+        self.page.pressed.append((self.selector, key))
+
     def press_sequentially(self, text, delay=0):
         self.page.filled[self.selector] = self.page.filled.get(self.selector, "") + text
 
@@ -57,6 +60,12 @@ class FakeLocator:
 
     def count(self):
         return 1
+
+    def is_visible(self):
+        return self.selector in self.page.visible
+
+    def inner_text(self):
+        return self.page.texts.get(self.selector, "")
 
 
 class FakeFrameLocator:
@@ -94,7 +103,10 @@ class FakePage:
         self.mouse = FakeMouse()
         self.clicked = []
         self.filled = {}
+        self.pressed = []
         self.checked = {}
+        self.visible = set()  # selectors is_visible() reports True for
+        self.texts = {}  # selector -> inner_text()
         self.closed = False
         self.video = (
             FakeVideo(f"/tmp/fake-{FakePage._counter}.webm") if record else None

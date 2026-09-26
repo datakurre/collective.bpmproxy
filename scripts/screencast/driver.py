@@ -21,6 +21,39 @@ from screencast.library import _RECOVERING_WRAPPER_KEYWORDS
 from screencast.library import Screencast
 import datetime
 import sys
+import tempfile
+
+
+def versions():
+    """The resolved versions of everything the engine runs on, so an
+    environment mismatch (CI and devenv resolve Robot Framework, Playwright
+    and ffmpeg independently) is obvious in a bug report."""
+    import importlib.metadata
+    import platform
+    import shutil
+    import subprocess
+
+    found = {"python": platform.python_version()}
+    for label, distribution in (
+        ("robotframework", "robotframework"),
+        ("playwright", "playwright"),
+        ("jsonschema", "jsonschema"),
+    ):
+        try:
+            found[label] = importlib.metadata.version(distribution)
+        except importlib.metadata.PackageNotFoundError:
+            found[label] = "not installed"
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg:
+        first_line = subprocess.run(
+            [ffmpeg, "-version"], capture_output=True, text=True, check=False
+        ).stdout.splitlines()[:1]
+        found["ffmpeg"] = (
+            first_line[0].removeprefix("ffmpeg version ") if first_line else "unknown"
+        )
+    else:
+        found["ffmpeg"] = "not on PATH"
+    return found
 
 
 def default_take_dir(story, base=None):
@@ -303,7 +336,13 @@ def check(story, take_dir=None):
     dry-run skips real keyword bodies. Cheaper than a real run when the
     browser was never the problem. Returns a list of "task: message"
     strings; empty means it checked out clean."""
-    take_dir = Path(take_dir) if take_dir else default_take_dir(story, base=Path.cwd())
+    if take_dir is None:
+        # Nothing here is worth keeping: a dry run has no recording, and a
+        # timestamped directory in the current directory per check just
+        # litters the repository.
+        with tempfile.TemporaryDirectory(prefix="screencast-check-") as scratch:
+            return check(story, take_dir=scratch)
+    take_dir = Path(take_dir)
     take_dir.mkdir(parents=True, exist_ok=True)
     output = take_dir / "check-output.json"
     suite = TestSuite.from_file_system(str(story))

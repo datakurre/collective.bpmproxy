@@ -13,19 +13,14 @@ Checks:
   from the *real* measured duration (`fps >= rows*cols / duration`), so a
   longer take than the last one still gets full coverage instead of a
   stale, undersized rate.
-- **Dead air** (`severity: "warning"`, does not fail `ok`): `freezedetect`
-  finds frozen runs; their total is compared against the "expected freeze
-  budget" (the sum of chapter and hold durations -- title cards and holds
-  are the only segments the composer ever freezes on purpose, plus a
-  "recorded" hold's own real elapsed wait, e.g. the return-to-observer
-  pause after a turn -- see library.py's end_actor_turn and
-  predicted_duration()'s docstring). More frozen time than that budget
-  plus DEAD_AIR_TOLERANCE is reported as a finding, but only a warning:
-  on a real recording, `freezedetect`'s whole-frame pixel comparison
-  can't see cursor-only motion at 1920x1080, so ordinary human-paced
-  turns routinely false-positive as "frozen". Judging this from the
-  timeline instead of pixels is tracked in
-  datakurre/collective.bpmproxy#15; until then this check is advisory.
+- **Dead air**, judged from the timeline: the library records a `wait`
+  event around every waiting keyword (`Sleep`, `Wait Until Keyword
+  Succeeds`, the engine's own waits, and any keyword tagged
+  `screencast:wait`). A single wait longer than DEAD_AIR_MAX_WAIT is an
+  error -- the story stood still on screen for that long -- and total
+  waiting above DEAD_AIR_TOTAL_WAIT is a warning. Pixels cannot decide
+  this: `freezedetect` compares whole frames and cannot see cursor-only
+  motion at 1920x1080, so it called ordinary human-paced turns "frozen".
 - **Blank frames**: `blackdetect` on the composed output, tuned to
   near-pure black (`pix_th=0.02`) rather than the default's
   dark-theme-triggering 10% luma threshold, since this project's own
@@ -61,7 +56,18 @@ import subprocess
 
 
 DURATION_TOLERANCE = 1.5  # seconds; see screencast.timeline.OVERLAP_TOLERANCE
-DEAD_AIR_TOLERANCE = 2.0  # seconds of unaccounted freeze before it's a finding
+# Dead air is judged from the timeline (the `wait` events the library records
+# around every waiting keyword), not from pixels: freezedetect cannot see
+# cursor-only motion at 1920x1080, so it called ordinary human-paced turns
+# "frozen". A pixel check has no usable signal here even as a coarse one: on a
+# live contact_form take the longest frozen stretch of a healthy take (16.7s,
+# a title card merging with the static page after it) was longer than that
+# of a take with a deliberate 12s Sleep (15.9s). The longest wait in a healthy
+# live take is about 3.4s and the total 1-9s (contact_form, review_process,
+# renovation_project), so a single wait beyond 10s is a story that stood
+# still on screen and needs fixing.
+DEAD_AIR_MAX_WAIT = 10.0  # seconds, one wait: an error
+DEAD_AIR_TOTAL_WAIT = 30.0  # seconds, all waits in the take: a warning
 BLANK_LUMA_RANGE = 4  # max:min luma spread below this counts as "uniform"
 # Sampling exactly at a turn's start boundary risks a compressed keyframe
 # seek landing just before the composer's hard cut there and reading the
@@ -128,8 +134,6 @@ def frame_luma_range(video, at, width=64, height=36):
     return max(data) - min(data)
 
 
-_FREEZE_START_RE = re.compile(r"freeze_start:\s*([\d.]+)")
-_FREEZE_DURATION_RE = re.compile(r"freeze_duration:\s*([\d.]+)")
 _BLACK_RE = re.compile(
     r"black_start:\s*([\d.]+)\s+black_end:\s*([\d.]+)\s+black_duration:\s*([\d.]+)"
 )
@@ -150,35 +154,6 @@ def parse_vtt_cue_times(vtt_path):
         end = int(eh) * 3600 + int(em) * 60 + float(es)
         cues.append((start, end))
     return cues
-
-
-def detect_freezes(video, noise_db=-30, min_duration=1.0):
-    """Durations of every frozen run `freezedetect` finds. A freeze that is
-    still ongoing when the stream ends never gets a matching
-    freeze_duration/freeze_end line from ffmpeg -- only freeze_start -- so
-    that trailing case is computed from the clip's own measured duration
-    instead of silently dropped."""
-    result = subprocess.run(
-        [
-            "ffmpeg",
-            "-v",
-            "info",
-            "-i",
-            str(video),
-            "-vf",
-            f"freezedetect=n={noise_db}dB:d={min_duration}",
-            "-f",
-            "null",
-            "-",
-        ],
-        capture_output=True,
-        text=True,
-    )
-    starts = [float(m.group(1)) for m in _FREEZE_START_RE.finditer(result.stderr)]
-    durations = [float(m.group(1)) for m in _FREEZE_DURATION_RE.finditer(result.stderr)]
-    if len(starts) > len(durations):
-        durations.append(ffprobe_duration(video) - starts[-1])
-    return durations
 
 
 def detect_black_intervals(video, min_duration=0.5, pic_th=0.98, pix_th=0.02):
@@ -208,9 +183,20 @@ def detect_black_intervals(video, min_duration=0.5, pic_th=0.98, pix_th=0.02):
     ]
 
 
+def contact_sheet_fps(duration, rows=6, cols=5):
+    """The sampling rate at which `rows * cols` frames span the *whole*
+    clip. `tile` buffers that many sampled frames before emitting one image,
+    so any higher rate silently covers only the clip's opening: the sheet
+    would never show the back half, which is where a take's ending (the
+    finale, a truncated composite) is. There is deliberately no lower bound
+    -- an earlier `max(..., 0.5)` floor limited every take longer than
+    `rows * cols / 0.5` = 60 s to its first minute."""
+    return (rows * cols) / max(duration, 0.1)
+
+
 def make_contact_sheet(video, output, rows=6, cols=5, duration=None):
     duration = duration or ffprobe_duration(video)
-    fps = max((rows * cols) / max(duration, 0.1), 0.5)
+    fps = contact_sheet_fps(duration, rows, cols)
     subprocess.run(
         [
             "ffmpeg",
@@ -302,29 +288,32 @@ def verify(take_dir, output_video=None, contact_sheet=None, rows=6, cols=5):
             }
         )
 
-    freeze_budget = sum(e["duration"] for e in timeline.events_of("chapter"))
-    freeze_budget += sum(e["duration"] for e in timeline.events_of("hold"))
-    total_freeze = sum(detect_freezes(output_video))
-    if total_freeze - freeze_budget > DEAD_AIR_TOLERANCE:
+    waits = timeline.events_of("wait")
+    waited = sum(wait["duration"] for wait in waits)
+    longest_wait = max((wait["duration"] for wait in waits), default=0.0)
+    for wait in waits:
+        if wait["duration"] > DEAD_AIR_MAX_WAIT:
+            findings.append(
+                {
+                    "check": "dead_air",
+                    "severity": "error",
+                    "message": (
+                        f"{wait.get('keyword') or 'A wait'} waited "
+                        f"{wait['duration']:.1f}s, {wait['time']:.0f}s into "
+                        "the take: nothing is driven on screen for that long "
+                        f"(limit {DEAD_AIR_MAX_WAIT:g}s)"
+                    ),
+                }
+            )
+    if waited > DEAD_AIR_TOTAL_WAIT:
         findings.append(
             {
                 "check": "dead_air",
-                # Not "error": on a real recording, freezedetect compares
-                # mean pixel difference across the whole composited frame,
-                # and a cursor move/click ring is far below any usable
-                # threshold at 1920x1080 -- ordinary human-paced turns
-                # (hover, read, click) false-positive as "frozen" even
-                # though nothing is wrong. Downgraded to a warning (still
-                # reported, but does not fail ok/the exit code) until this
-                # is judged from the timeline instead of pixels -- see
-                # datakurre/collective.bpmproxy#15.
                 "severity": "warning",
                 "message": (
-                    f"{total_freeze:.2f}s of frozen video, but only "
-                    f"{freeze_budget:.2f}s is accounted for by chapter/hold "
-                    "events -- something outside a declared hold produced "
-                    "dead air (or this is cursor-only motion freezedetect "
-                    "can't see -- see datakurre/collective.bpmproxy#15)"
+                    f"{waited:.1f}s spent waiting across {len(waits)} waits "
+                    f"(warning above {DEAD_AIR_TOTAL_WAIT:g}s): the take "
+                    "spends much of its length with nothing on screen"
                 ),
             }
         )
@@ -352,10 +341,20 @@ def verify(take_dir, output_video=None, contact_sheet=None, rows=6, cols=5):
     # overlays the observer as a bordered inset, and that border alone
     # keeps the composited frame's luma range well above BLANK_LUMA_RANGE
     # regardless of whether the actor's own content is blank.
-    for clip in timeline.actors:
+    # The composer enters a turn's clip at its turn_start mark, not at the
+    # clip's first frame: a page paints a fraction of a second after its
+    # context opens, and that blank lead-in is cut. Sample just after where
+    # the composer actually enters the clip (turn_start events pair with the
+    # actor clips in order, as in compose), so a lead-in it never shows is
+    # not reported -- a fixed offset into the raw clip failed a healthy take
+    # whenever the page painted slightly slower than usual.
+    starts = sorted(timeline.events_of("turn_start"), key=lambda e: e["time"])
+    paired = len(starts) == len(timeline.actors)
+    for index, clip in enumerate(timeline.actors):
         clip_path = take_dir / clip["video"]
         clip_duration = ffprobe_duration(clip_path)
-        at = min(TURN_OPEN_SAMPLE_OFFSET, max(0.0, clip_duration - 0.05))
+        entered = max(0.0, starts[index]["time"] - clip["offset"]) if paired else 0.0
+        at = min(entered + TURN_OPEN_SAMPLE_OFFSET, max(0.0, clip_duration - 0.05))
         luma_range = frame_luma_range(clip_path, at)
         if luma_range < BLANK_LUMA_RANGE:
             findings.append(
@@ -442,8 +441,8 @@ def verify(take_dir, output_video=None, contact_sheet=None, rows=6, cols=5):
         "observer_duration": observer_duration,
         "expected_duration": expected_duration,
         "actual_duration": actual_duration,
-        "freeze_budget": freeze_budget,
-        "total_freeze": total_freeze,
+        "waited_seconds": round(waited, 3),
+        "longest_wait": round(longest_wait, 3),
         "contact_sheet": str(sheet_path),
         "findings": findings,
     }

@@ -97,7 +97,7 @@ twice does not re-render them.
 `{"check": str, "severity": "error", "message": str}`. To add one:
 
 1. Write the detection as its own function, real ffmpeg/ffprobe underneath
-   (see `detect_freezes()`/`detect_black_intervals()`/`frame_luma_range()`
+   (see `detect_black_intervals()`/`frame_luma_range()`
    for the existing patterns — a filter run with `-f null -`, parsed from
    stderr, or a raw-pixel pipe for a single-frame sample).
 2. Call it from `verify()`, append a finding dict on a problem.
@@ -116,12 +116,15 @@ and Cockpit's own UI, not generic defaults — `blackdetect`'s default
 ```sh
 make screencast [STORY=review_process]   # run, compose, verify; fixed take dir
 make story-test [STORY=...]              # --no-record, fast, for the fix loop
+make promote-screenshots STORY=...       # copy a take's screenshots into docs/
+make demo-stack STORY=...                # services + site + demo profile + Plone + worker
+make demo-stack-down                     # stop Plone and the worker again
 ```
 
-Both need `make services`/`make start` already running. `STORY` defaults to
+`screencast` and `story-test` need the stack up: `make demo-stack STORY=...` does that in one go (or `make services` + `make start`, see the scenario docs). Never run a story against a stack you did not start: its first task clears the engine's deployments. `STORY` defaults to
 `review_process`; the take directory is `var/screencasts/<story>/latest`
 (or `latest-test`) rather than timestamped, so re-running overwrites in
-place instead of accumulating takes — use `python -m screencast run
+place instead of accumulating takes — use `playwright-python -m screencast run
 --take DIR` directly when you want to keep more than one.
 
 ## What's still manual

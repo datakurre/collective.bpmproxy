@@ -20,6 +20,7 @@ from datetime import datetime
 from pathlib import Path
 from robot.api import FatalError
 from robot.api import logger
+from robot.utils import timestr_to_secs
 from screencast.cursor import CLICK_SETTLE_MS
 from screencast.cursor import CURSOR_SCRIPT
 from screencast.cursor import FILL_SETTLE_MS
@@ -27,6 +28,7 @@ from screencast.cursor import MOVE_SETTLE_MS
 from screencast.cursor import MOVE_STEPS
 from screencast.cursor import TYPE_DELAY_MS
 from screencast.timeline import Timeline
+import base64
 import os
 import time
 
@@ -46,6 +48,28 @@ DEFAULT_CAPTION_DURATION = 4.0
 # no-op for it): a failure it lets the test continue past is still a real
 # failure, not a recovered one, and that's exactly what its FAIL status
 # already signals without any special-casing here.
+# Keywords during which the story is just waiting: nothing is driven on
+# screen, and the recording shows a page that does not change. Matched by the
+# keyword's own name, whichever library owns it; a project's own polling
+# keywords opt in with the tag below (`[Tags]    screencast:wait`).
+_WAITING_KEYWORDS = frozenset(
+    {
+        "Sleep",
+        "Wait Until Keyword Succeeds",
+        "Wait Until Visible",
+        "Wait For Navigation Away",
+    }
+)
+WAIT_TAG = "screencast:wait"
+# A wait shorter than this is not dead air, only a page settling; recording
+# every one would just fill the timeline with noise.
+WAIT_MIN_RECORDED = 0.25
+
+
+def _is_waiting(result):
+    return result.name in _WAITING_KEYWORDS or WAIT_TAG in result.tags
+
+
 _RECOVERING_WRAPPER_KEYWORDS = frozenset(
     {
         "Wait Until Keyword Succeeds",
@@ -106,10 +130,39 @@ class _Listener:
     def __init__(self):
         self._pending_dump_paths = None
         self._recovery_boundary_stack = []
+        self._wait_depth = 0
+        self._wait_started = None
 
     def start_test(self, data, result):
         self._pending_dump_paths = None
         self._recovery_boundary_stack = []
+        self._wait_depth = 0
+        self._wait_started = None
+
+    def _start_wait(self, result):
+        # Only the outermost waiting keyword counts: a Wait Until Keyword
+        # Succeeds polling a Wait Until Visible is one wait, not two.
+        if self._wait_depth == 0 and _SESSION.timeline is not None:
+            self._wait_started = (_SESSION.elapsed(), result.name)
+        self._wait_depth += 1
+
+    def _end_wait(self):
+        self._wait_depth = max(0, self._wait_depth - 1)
+        if self._wait_depth or self._wait_started is None:
+            return
+        started, name = self._wait_started
+        self._wait_started = None
+        duration = _SESSION.elapsed() - started
+        if _SESSION.timeline is not None and duration >= WAIT_MIN_RECORDED:
+            _SESSION.timeline.add_event(
+                {
+                    "type": "wait",
+                    "time": started,
+                    "duration": round(duration, 3),
+                    "keyword": name,
+                }
+            )
+            _save_timeline()
 
     def _push_recovery_boundary(self):
         # Remember whether a dump was already pending *before* this
@@ -138,6 +191,8 @@ class _Listener:
             self._pending_dump_paths = None
 
     def start_keyword(self, data, result):
+        if _is_waiting(result):
+            self._start_wait(result)
         if data.name in _RECOVERING_WRAPPER_KEYWORDS:
             self._push_recovery_boundary()
 
@@ -151,6 +206,8 @@ class _Listener:
         # overall, so only the first attempt's dump is kept as "pending",
         # cleared on a recovery boundary's own success (see
         # _pop_recovery_boundary) rather than unconditionally here.
+        if _is_waiting(result):
+            self._end_wait()
         if data.name in _RECOVERING_WRAPPER_KEYWORDS:
             self._pop_recovery_boundary(succeeded=result.status != "FAIL")
         if result.status == "FAIL" and self._pending_dump_paths is None:
@@ -240,10 +297,22 @@ class Screencast:
     ROBOT_LIBRARY_SCOPE = "GLOBAL"
     ROBOT_LIBRARY_LISTENER = _Listener()
 
-    def __init__(self, take_dir=".", record=True, headless=True, viewport=None):
-        _SESSION.take_dir = Path(take_dir)
-        _SESSION.record = _as_bool(record)
-        _SESSION.headless = _as_bool(headless)
+    def __init__(self, take_dir=None, record=None, headless=None, viewport=None):
+        # Only arguments that were actually passed change the session. Robot
+        # Framework constructs a library instance for *every* import of it,
+        # and a story's own `Library screencast.Screencast take_dir=... ` is
+        # followed by a resource file's bare `Library screencast.Screencast`
+        # (bpmproxy.resource) -- which used to reset the session to the
+        # defaults, sending a `--no-record` run's videos, timeline and
+        # failure artifacts to the current directory.
+        if take_dir is not None:
+            _SESSION.take_dir = Path(take_dir)
+        elif _SESSION.take_dir is None:
+            _SESSION.take_dir = Path(".")
+        if record is not None:
+            _SESSION.record = _as_bool(record)
+        if headless is not None:
+            _SESSION.headless = _as_bool(headless)
         if viewport:
             _SESSION.viewport = viewport
         if _SESSION.timeline is None:
@@ -388,7 +457,9 @@ class Screencast:
         if storage_state:
             context_kwargs["storage_state"] = storage_state
         if http_credentials:
-            context_kwargs["http_credentials"] = http_credentials
+            context_kwargs["extra_http_headers"] = _basic_auth_headers(
+                http_credentials["username"], http_credentials["password"]
+            )
         context = _SESSION.browser.new_context(**context_kwargs)
         page = context.new_page()
         _track_console(page)
@@ -438,12 +509,11 @@ class Screencast:
 
         Authenticates the context via HTTP Basic Auth as `actor`/`password`
         (defaulting `password` to `actor`, this project's convention for its
-        demo users) unless `anonymous=True` -- the same
-        `extra_http_headers={"Authorization": ...}` the old e2e_*.py scripts
-        used, done here via Playwright's own `http_credentials` context
-        option instead. Without this, every turn ran as an anonymous
-        visitor regardless of `actor`, which most stories cannot get past
-        their first permission-gated click.
+        demo users) unless `anonymous=True`, via an explicit `Authorization`
+        header on the context (see `_basic_auth_headers` for why Playwright's
+        `http_credentials` option cannot be used). Without this, every turn
+        ran as an anonymous visitor regardless of `actor`, which most
+        stories cannot get past their first permission-gated click.
 
         With `title`, also records a `chapter` event: a title card the
         composer inserts ahead of this turn's clip. No time is spent
@@ -463,10 +533,9 @@ class Screencast:
             context_kwargs["record_video_dir"] = str(_SESSION.take_dir)
             context_kwargs["record_video_size"] = _SESSION.viewport
         if not _as_bool(anonymous):
-            context_kwargs["http_credentials"] = {
-                "username": actor,
-                "password": password or actor,
-            }
+            context_kwargs["extra_http_headers"] = _basic_auth_headers(
+                actor, password or actor
+            )
         try:
             context = _SESSION.browser.new_context(**context_kwargs)
             context.add_init_script(CURSOR_SCRIPT)
@@ -727,6 +796,14 @@ class Screencast:
         self._locator(selector, index).fill(text)
         self._page().wait_for_timeout(FILL_SETTLE_MS)
 
+    def press_key(self, selector, key, index=0):
+        """Focus `selector` and press one key (`Enter`, `Tab`,
+        `ArrowDown`, ...) -- e.g. to pick a suggestion from a tag-list
+        input after typing into it, which typing alone never confirms."""
+        self.human_move(selector, index)
+        self._locator(selector, index).press(key)
+        self._page().wait_for_timeout(FILL_SETTLE_MS)
+
     def wait_until_visible(self, selector, timeout=10000, index=0):
         self._locator(selector, index).wait_for(state="visible", timeout=int(timeout))
 
@@ -773,6 +850,43 @@ class Screencast:
         if page is _SESSION._turn_page and not _SESSION._turn_start_recorded:
             self._record_turn_start()
 
+    def get_url(self):
+        """The current page's URL."""
+        return self._page().url
+
+    def wait_for_navigation_away(self, from_url, error_selector=None, timeout=15):
+        """Wait until the current page is no longer at `from_url`, i.e. a
+        form submit actually went through and redirected somewhere else.
+
+        A click on a submit button that the page then rejects (a form-js
+        field that failed validation, say) leaves the URL unchanged and
+        nothing on screen says the story went wrong, so a story that never
+        completed its task would still "pass" here and only fail, much
+        later, in an unrelated turn. Fail at the step that failed instead:
+        immediately, with the visible message, when an element matching
+        `error_selector` is on screen; otherwise when `timeout` (seconds, or
+        a Robot time string such as `15s`) runs out.
+        """
+        page = self._page()
+        limit = timestr_to_secs(timeout)
+        deadline = time.monotonic() + limit
+        while True:
+            if page.url != from_url:
+                return
+            if error_selector:
+                errors = page.locator(error_selector)
+                if errors.count() and errors.first.is_visible():
+                    message = errors.first.inner_text().strip() or repr(error_selector)
+                    raise AssertionError(
+                        f"The form at {from_url} was not submitted: {message}"
+                    )
+            if time.monotonic() >= deadline:
+                raise AssertionError(
+                    f"The page stayed at {from_url} for {limit:g}s after the "
+                    "submit: the form was not accepted"
+                )
+            page.wait_for_timeout(250)
+
     def get_current_page(self):
         """Return the live Playwright Page for the current context, for
         project keywords that need the raw Playwright API (e.g. `.request`
@@ -780,12 +894,29 @@ class Screencast:
         return self._page()
 
     def take_screenshot(self, path, full_page=True):
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
         self._page().screenshot(path=str(path), full_page=_as_bool(full_page))
 
     def _page(self):
         if _SESSION.current_page is None:
             raise FatalError("No open page -- call Start Observer first")
         return _SESSION.current_page
+
+
+def _basic_auth_headers(username, password):
+    """An explicit `Authorization: Basic` header for a context's
+    `extra_http_headers`.
+
+    Playwright's own `http_credentials` context option does NOT work for
+    Plone: it only answers a 401 challenge, and Plone serves its pages to
+    anonymous visitors with a 200 and never challenges -- so the browser
+    never sends the credentials and the page (and every `fetch()` from it)
+    stays anonymous. Verified against a live Plone: with `http_credentials`
+    (even `send="always"`) the front page is anonymous and
+    `@bpmproxy-deployments` returns 401; with this header both are logged in.
+    """
+    token = base64.b64encode(f"{username}:{password}".encode()).decode()
+    return {"Authorization": f"Basic {token}"}
 
 
 def _as_bool(value):

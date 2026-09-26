@@ -3,8 +3,9 @@ name: collective.bpmproxy
 on:
   push:
     branches: [master, main]
+  # Any base branch, not only master/main: a PR stacked on another PR's
+  # branch must get CI too.
   pull_request:
-    branches: [master, main]
 
 jobs:
   lint:
@@ -95,8 +96,17 @@ jobs:
         run: ./mvnw -B test
 
   screencast-engine:
-    name: Screencast engine (scripts/screencast/)
+    name: Screencast engine (scripts/screencast/), ${{ matrix.robotframework }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The oldest supported release (what devenv's pinned nixpkgs ships,
+        # so what users actually run) and the newest. An API missing from
+        # the oldest -- robot.api.console needs 7.5, say -- fails here, not
+        # only on a devenv shell. The minimum is stated in
+        # scripts/screencast/README.md.
+        robotframework: ["robotframework==7.4.2", "robotframework"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -113,6 +123,8 @@ jobs:
       - name: Install ffmpeg
         run: sudo apt-get update -qq && sudo apt-get install -y ffmpeg
       - name: Install test dependencies
-        run: pip install pytest robotframework jsonschema
+        run: pip install pytest jsonschema "${{ matrix.robotframework }}"
       - name: Run tests
-        run: PYTHONPATH=scripts python -m pytest scripts/screencast/tests/
+        run: |
+          PYTHONPATH=scripts python -m screencast --version
+          PYTHONPATH=scripts python -m pytest scripts/screencast/tests/

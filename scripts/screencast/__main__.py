@@ -7,8 +7,26 @@ import argparse
 import sys
 
 
+class _PrintVersions(argparse.Action):
+    """`--version`: the resolved versions of Robot Framework, Playwright,
+    jsonschema and ffmpeg. Computed only when asked for (it runs ffmpeg)."""
+
+    def __init__(self, option_strings, dest, **kwargs):
+        super().__init__(option_strings, dest, nargs=0, **kwargs)
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        for name, version in driver.versions().items():
+            print(f"{name}: {version}")
+        parser.exit()
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="python -m screencast")
+    parser.add_argument(
+        "--version",
+        action=_PrintVersions,
+        help="Print the versions of Robot Framework, Playwright, jsonschema and ffmpeg",
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     run_parser = subparsers.add_parser("run", help="Run a story")

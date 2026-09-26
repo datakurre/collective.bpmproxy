@@ -97,7 +97,7 @@ twice does not re-render them.
 `{"check": str, "severity": "error", "message": str}`. To add one:
 
 1. Write the detection as its own function, real ffmpeg/ffprobe underneath
-   (see `detect_freezes()`/`detect_black_intervals()`/`frame_luma_range()`
+   (see `detect_black_intervals()`/`frame_luma_range()`
    for the existing patterns — a filter run with `-f null -`, parsed from
    stderr, or a raw-pixel pipe for a single-frame sample).
 2. Call it from `verify()`, append a finding dict on a problem.

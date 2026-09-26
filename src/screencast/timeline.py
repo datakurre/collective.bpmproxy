@@ -25,7 +25,7 @@ VERSION = 2
 SCHEMA_PATH = Path(__file__).with_name("schema") / "timeline.schema.json"
 
 EVENT_TYPES = frozenset(
-    {"turn_start", "turn_end", "chapter", "focus", "hold", "caption"}
+    {"turn_start", "turn_end", "chapter", "focus", "hold", "caption", "wait"}
 )
 
 # Back-to-back turns can leave a near-zero real-time gap, where ffprobe's

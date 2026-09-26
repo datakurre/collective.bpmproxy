@@ -9,6 +9,7 @@ from screencast import library as library_module
 from screencast.tests.fakes import fake_sync_playwright
 from screencast.tests.fakes import FakePlaywright
 import io
+import json
 import pytest
 import sys
 import types
@@ -550,3 +551,43 @@ def test_version_prints_the_resolved_versions(capsys):
     ):
         assert label in output
     assert "robotframework: not installed" not in output
+
+
+WAIT_STORY = """\
+*** Settings ***
+Library    screencast.Screencast    take_dir=${TAKE_DIR}    record=${RECORD}
+
+*** Test Cases ***
+Waits
+    Start Observer    observer    http://example.test
+    Sleep    0.3s
+    Sleep    0.05s
+    Wait Until Keyword Succeeds    3x    0.01s    Tagged Poll
+    Tagged Poll
+
+*** Keywords ***
+Tagged Poll
+    [Tags]    screencast:wait
+    Sleep    0.3s
+"""
+
+
+def test_waiting_keywords_are_recorded_as_wait_events(tmp_path):
+    """The timeline records the story's own waiting, which `verify` judges
+    (datakurre/collective.bpmproxy#15): built-in waits, and any keyword a
+    project tags `screencast:wait`. Only the outermost wait counts (the
+    Sleep inside a tagged poll is part of it), and a wait too short to be
+    dead air (0.05s) is not recorded at all."""
+    take_dir = tmp_path / "take"
+    code, _ = driver.run(
+        write_story(tmp_path, WAIT_STORY), take_dir=take_dir, quiet=True
+    )
+    assert code == 0
+    timeline = json.loads((take_dir / "timeline.json").read_text())
+    waits = [e for e in timeline["events"] if e["type"] == "wait"]
+    assert [w["keyword"] for w in waits] == [
+        "Sleep",
+        "Wait Until Keyword Succeeds",
+        "Tagged Poll",
+    ]
+    assert all(w["duration"] >= 0.29 for w in waits)

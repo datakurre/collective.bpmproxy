@@ -6,7 +6,6 @@ commit message)."""
 from screencast.compose import compose
 from screencast.timeline import Timeline
 from screencast.verify import detect_black_intervals
-from screencast.verify import detect_freezes
 from screencast.verify import frame_luma_range
 from screencast.verify import parse_vtt_cue_times
 from screencast.verify import predicted_duration
@@ -73,14 +72,6 @@ def test_frame_luma_range_is_large_for_content(tmp_path):
 
 
 @requires_ffmpeg
-def test_detect_freezes_finds_a_frozen_run(tmp_path):
-    clip = tmp_path / "frozen.webm"
-    make_clip(clip, 3.0, color="red")
-    freezes = detect_freezes(clip, min_duration=1.0)
-    assert freezes and freezes[0] > 1.0
-
-
-@requires_ffmpeg
 def test_detect_black_intervals_finds_near_pure_black(tmp_path):
     clip = tmp_path / "black.webm"
     make_clip(clip, 2.0, color="black")
@@ -123,51 +114,6 @@ def make_animated_clip(path, duration, color="blue"):
             f"color=c={color}:s=320x180:d={duration}:r=25",
             "-vf",
             "noise=alls=40:allf=t+u",
-            "-c:v",
-            "libvpx",
-            "-deadline",
-            "good",
-            "-cpu-used",
-            "5",
-            "-crf",
-            "20",
-            "-b:v",
-            "4M",
-            str(path),
-        ],
-        check=True,
-    )
-
-
-def make_freeze_then_move_clip(path, freeze_at, freeze_duration, total_duration):
-    """Animated, then genuinely static for `freeze_duration`, then animated
-    again -- simulates an observer that really does hold still for a real
-    elapsed wait (e.g. the return-to-observer pause after a turn), as
-    opposed to make_animated_clip()'s constant motion throughout."""
-    tail = max(total_duration - freeze_at - freeze_duration, 0.1)
-    subprocess.run(
-        [
-            "ffmpeg",
-            "-y",
-            "-v",
-            "error",
-            "-f",
-            "lavfi",
-            "-i",
-            f"color=c=blue:s=320x180:d={freeze_at}:r=25",
-            "-f",
-            "lavfi",
-            "-i",
-            f"color=c=blue:s=320x180:d={freeze_duration}:r=25",
-            "-f",
-            "lavfi",
-            "-i",
-            f"color=c=blue:s=320x180:d={tail}:r=25",
-            "-filter_complex",
-            "[0:v]noise=alls=40:allf=t+u[a];[2:v]noise=alls=40:allf=t+u[c];"
-            "[a][1:v][c]concat=n=3:v=1:a=0[out]",
-            "-map",
-            "[out]",
             "-c:v",
             "libvpx",
             "-deadline",
@@ -264,55 +210,52 @@ def test_predicted_duration_excludes_a_recorded_hold(tmp_path):
     assert predicted_duration(timeline, observer_duration=5.0) == 7.0
 
 
-@requires_ffmpeg
-def test_verify_budgets_the_recorded_return_to_observer_wait(tmp_path):
-    """(regression, PR #14 follow-up review, reproduced) A real
-    return-to-observer wait freezes the observer for real: 6s of genuinely
-    static footage right after a turn ends (the reviewer's own real-Chromium
-    repro). Confirms both that this exact shape fails without the
-    "recorded" hold (pre-fix simulation) and passes with it."""
-    take_dir = tmp_path / "take"
-    take_dir.mkdir(parents=True, exist_ok=True)
-    make_freeze_then_move_clip(
-        take_dir / "observer.webm",
-        freeze_at=3.0,
-        freeze_duration=6.0,
-        total_duration=10.0,
-    )
-    make_animated_clip(take_dir / "author.webm", 2.0)
-
-    timeline = Timeline.new("observer.webm")
-    timeline.add_actor_clip("author", "author.webm", offset=1.0, duration=2.0)
-    timeline.add_event({"type": "turn_start", "time": 1.0, "actor": "author"})
-    timeline.add_event({"type": "turn_end", "time": 3.0, "actor": "author"})
-    timeline.save(take_dir / "timeline.json")  # no hold yet: pre-fix shape
-
-    compose(take_dir)
-    pre_fix_report = verify(take_dir)
-    assert any(f["check"] == "dead_air" for f in pre_fix_report["findings"])
-    # dead_air is a warning (PR #14 follow-up review, datakurre/
-    # collective.bpmproxy#15): freezedetect can't see cursor-only motion at
-    # 1080p, so it false-positives on ordinary real turns -- reported, but
-    # must not fail ok/the exit code on its own.
-    dead_air = next(f for f in pre_fix_report["findings"] if f["check"] == "dead_air")
-    assert dead_air["severity"] == "warning"
-    assert pre_fix_report["ok"] is True
-
-    timeline.add_event(
-        {
-            "type": "hold",
-            "time": 3.0,
-            "duration": 6.0,
-            "view": "observer",
-            "recorded": True,
-        }
-    )
+def _take_with_waits(take_dir, waits):
+    """A clean composed take whose timeline also records `waits` (a list of
+    (time, duration, keyword))."""
+    timeline = make_take(take_dir)
+    for time_, duration, keyword in waits:
+        timeline.add_event(
+            {"type": "wait", "time": time_, "duration": duration, "keyword": keyword}
+        )
     timeline.save(take_dir / "timeline.json")
+    compose(take_dir)
+    return verify(take_dir)
 
-    report = verify(take_dir)
-    assert not any(f["check"] == "dead_air" for f in report["findings"]), report[
-        "findings"
-    ]
+
+@requires_ffmpeg
+def test_verify_flags_one_long_wait_as_a_dead_air_error(tmp_path):
+    """(datakurre/collective.bpmproxy#15) Dead air is judged from the
+    timeline: a single wait past DEAD_AIR_MAX_WAIT is a story that stood
+    still on screen, and fails verify."""
+    report = _take_with_waits(tmp_path / "take", [(1.0, 12.0, "Wait For Mail")])
+    assert not report["ok"]
+    finding = next(f for f in report["findings"] if f["check"] == "dead_air")
+    assert finding["severity"] == "error"
+    assert "Wait For Mail waited 12.0s" in finding["message"]
+    assert report["longest_wait"] == 12.0
+
+
+@requires_ffmpeg
+def test_verify_accepts_the_waits_of_a_healthy_take(tmp_path):
+    """Measured on real takes: the longest wait is about 2.4s and the total
+    1-7s. Waits like that must never fail a take."""
+    report = _take_with_waits(
+        tmp_path / "take", [(0.5, 2.4, "Wait For Task"), (2.0, 1.1, "Sleep")]
+    )
+    assert not any(f["check"] == "dead_air" for f in report["findings"])
+    assert report["ok"]
+    assert report["waited_seconds"] == 3.5
+
+
+@requires_ffmpeg
+def test_verify_warns_when_waiting_adds_up_though_no_wait_is_long(tmp_path):
+    report = _take_with_waits(
+        tmp_path / "take", [(0.2 * i, 8.0, "Sleep") for i in range(4)]
+    )  # 32s in total, none over the single-wait limit
+    finding = next(f for f in report["findings"] if f["check"] == "dead_air")
+    assert finding["severity"] == "warning"
+    assert report["ok"]
 
 
 @requires_ffmpeg

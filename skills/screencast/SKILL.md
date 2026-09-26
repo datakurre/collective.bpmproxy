@@ -23,6 +23,25 @@ pip install "git+https://github.com/datakurre/robotframework-screencast@<tag-or-
 uv pip install "git+https://github.com/datakurre/robotframework-screencast"
 ```
 
+**With Nix** (if your environment has the `nix` skill, prefer this: nothing is
+installed, and ffmpeg, a matching Chromium and fonts come with the package). The
+repository is a flake, so run the command straight from GitHub:
+
+```sh
+nix run github:datakurre/robotframework-screencast -- --version
+nix run github:datakurre/robotframework-screencast -- run story.robot --take <dir>
+nix shell github:datakurre/robotframework-screencast --command screencast verify <dir>
+```
+
+Pin a tag or commit (`github:datakurre/robotframework-screencast/<rev>`) when
+the version matters: a remote flake runs code from that repository, and the
+default branch moves. A story that imports Python packages of its own needs an
+environment with them: use the pip install above in a virtualenv instead, since
+the Nix package carries only the engine's dependencies. In a project flake, add
+this one as an input and use `overlays.default` (it provides
+`pkgs.robotframework-screencast`), or `nix develop` in a clone for the
+development shell.
+
 Check it with `screencast --version` (or `python -m screencast --version`): it
 prints the resolved versions of Robot Framework, Playwright, jsonschema and
 ffmpeg. If the command is missing, the package is not installed in the

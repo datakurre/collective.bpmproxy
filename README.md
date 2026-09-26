@@ -90,6 +90,32 @@ Not published to PyPI, and no release is planned for now. Install from git:
 pip install "git+https://github.com/datakurre/robotframework-screencast"
 ```
 
+### With Nix
+
+The repository is a flake. Its package brings `ffmpeg`, a matching Chromium and
+fonts, so nothing else needs installing:
+
+```sh
+nix run github:datakurre/robotframework-screencast -- --version
+nix run github:datakurre/robotframework-screencast -- run story.robot --take out
+nix shell github:datakurre/robotframework-screencast --command screencast verify out
+```
+
+Pin it with a tag or commit (`github:datakurre/robotframework-screencast/<rev>`).
+In another flake, add it as an input and use its overlay:
+`nixpkgs.overlays = [ robotframework-screencast.overlays.default ]` gives
+`pkgs.robotframework-screencast`. To work on it:
+
+```sh
+nix develop --command pytest                 # the engine from the working tree
+nix develop --command mkdocs build --strict  # the docs
+nix flake check -L                           # lint and every test; the video tests take minutes
+```
+
+A story that imports further Python packages of its own needs an environment
+with them (a virtualenv with the pip install above); the Nix package carries
+only the engine's own dependencies.
+
 ## An example use case
 
 The engine was written for a Plone and Operaton (BPMN) project,

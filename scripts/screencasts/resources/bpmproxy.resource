@@ -142,6 +142,7 @@ Wait For Task
     ...    Go To -- there is nothing to refresh in place, the whole point is
     ...    to see a task portlet that did not exist before) until a task
     ...    named `task_name` is visible, then return its locator's page.
+    [Tags]    screencast:wait
     [Arguments]    ${task_name}    ${base_url}=${BASE_URL}    ${retries}=20x    ${interval}=3s
     Wait Until Keyword Succeeds    ${retries}    ${interval}    Task Is Visible    ${task_name}    ${base_url}
 
@@ -192,6 +193,7 @@ Wait For Workflow State
     ...    whose page has no Plone login session and so can never see a
     ...    still-private document's state label -- the poll would just
     ...    exhaust its retries and fail.
+    [Tags]    screencast:wait
     [Arguments]    ${doc_url}    ${state_text}    ${retries}=20x    ${interval}=3s
     ...    ${username}=manager    ${password}=manager
     Start Scratch Context    http_credentials=${{ {'username': $username, 'password': $password} }}

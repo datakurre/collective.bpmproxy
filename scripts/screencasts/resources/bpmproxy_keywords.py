@@ -12,7 +12,9 @@ one process, not a public API boundary.
 """
 
 from pathlib import Path
+from robot.api.deco import keyword
 from screencast.library import _SESSION
+from screencast.library import WAIT_TAG
 import json
 import time
 import urllib.error
@@ -108,6 +110,7 @@ def set_sharing(url, entries):
         raise AssertionError(f"Could not update sharing on {url}: {response.status}")
 
 
+@keyword(tags=[WAIT_TAG])  # a wait: verify's dead_air check counts it
 def wait_for_mail(subject, timeout=60, mailpit_url=DEFAULT_MAILPIT_URL):
     """Poll Mailpit's own HTTP API for a message with this Subject -- no
     browser page needed, unlike this module's other keywords."""

@@ -214,8 +214,8 @@ playwright-python -m screencast verify var/screencasts/review_process/<take>/
 duration (`fps >= rows*cols/duration`), so there is nothing to recompute by
 hand here the way the old per-scenario `tile=RxC` values needed -- see
 `scripts/screencast/verify.py`'s module docstring for exactly what it checks
-(stream shape, duration against the timeline's own prediction, dead air via
-`freezedetect` against the declared chapter/hold budget, blank frames, and an
+(stream shape, duration against the timeline's own prediction, dead air
+judged from the story's own recorded waits, blank frames, and an
 empty-inset sample per turn) and read `report.json` for the specific
 findings on a failing take.
 

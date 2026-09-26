@@ -29,7 +29,7 @@ scripts/screencast/            generic engine — no bpmproxy import anywhere
   timeline.py                    Timeline (EDL) schema v2: load/validate/save
   schema/timeline.schema.json    the JSON Schema timeline.py validates against
   compose.py                     timeline.json -> one ffmpeg filter_complex
-  verify.py                      ffprobe/freezedetect/blackdetect + contact sheet
+  verify.py                      ffprobe/blackdetect/wait events + contact sheet
   driver.py, __main__.py         `playwright-python -m screencast` (see below)
 
 scripts/screencasts/           this project's own layer, built on the engine
@@ -259,7 +259,7 @@ duration — never a stale hand-tuned value. Findings, by `check`:
 |---|---|
 | `stream` | Not exactly one 1920x1080 25fps video stream |
 | `duration` | Composed duration doesn't match the timeline's own prediction (observer length + every chapter/hold duration) |
-| `dead_air` | More frozen time (`freezedetect`) than the chapter+hold "freeze budget" accounts for — something outside a declared hold produced dead air |
+| `dead_air` | Judged from the timeline's `wait` events (recorded around `Sleep`, `Wait Until Keyword Succeeds`, the engine's own waits, and any keyword tagged `screencast:wait`): **error** for one wait over 10 s, warning when all waits together pass 30 s. Tag your own polling keywords: `[Tags]    screencast:wait`, or `@keyword(tags=[WAIT_TAG])` in Python |
 | `blank_frame` | A near-pure-black interval (`blackdetect`, tuned past this project's own dark-navy title cards) — also what missing fonts look like |
 | `empty_inset` | A sampled observer frame at some turn's midpoint is a near-uniform color — that turn's inset would be blank |
 

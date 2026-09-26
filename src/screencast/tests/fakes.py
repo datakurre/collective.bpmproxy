@@ -61,6 +61,12 @@ class FakeLocator:
     def count(self):
         return 1
 
+    def is_visible(self):
+        return self.selector in self.page.visible
+
+    def inner_text(self):
+        return self.page.texts.get(self.selector, "")
+
 
 class FakeFrameLocator:
     def __init__(self, page, frame_selector):
@@ -99,6 +105,8 @@ class FakePage:
         self.filled = {}
         self.pressed = []
         self.checked = {}
+        self.visible = set()  # selectors is_visible() reports True for
+        self.texts = {}  # selector -> inner_text()
         self.closed = False
         self.video = (
             FakeVideo(f"/tmp/fake-{FakePage._counter}.webm") if record else None

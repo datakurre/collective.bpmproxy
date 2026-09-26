@@ -474,3 +474,51 @@ def test_take_screenshot_creates_its_missing_parent_directory(tmp_path):
     assert not target.parent.exists()
     screencast.take_screenshot(target)
     assert target.parent.is_dir()
+
+
+def _observer(tmp_path):
+    screencast = library_module.Screencast(take_dir=tmp_path)
+    screencast.start_observer("observer", "http://example.test/form")
+    return screencast, library_module._SESSION.current_page
+
+
+def test_wait_for_navigation_away_returns_once_the_url_changes(tmp_path):
+    screencast, page = _observer(tmp_path)
+    ticks = []
+
+    def redirect_after_two_polls(ms):
+        ticks.append(ms)
+        if len(ticks) == 2:
+            page.url = "http://example.test/next"
+
+    page.wait_for_timeout = redirect_after_two_polls
+    screencast.wait_for_navigation_away("http://example.test/form", timeout=5)
+    assert len(ticks) == 2
+
+
+def test_wait_for_navigation_away_fails_when_the_page_never_leaves(tmp_path):
+    screencast, _page = _observer(tmp_path)
+    with pytest.raises(AssertionError, match="stayed at http://example.test/form"):
+        screencast.wait_for_navigation_away("http://example.test/form", timeout="0.05s")
+
+
+def test_wait_for_navigation_away_fails_at_once_with_the_visible_error(tmp_path):
+    """The validation message is the useful part: fail immediately with it,
+    not after the whole timeout with a generic message."""
+    screencast, page = _observer(tmp_path)
+    page.visible.add(".fjs-form-field-error")
+    page.texts[".fjs-form-field-error"] = "Field is required."
+    with pytest.raises(AssertionError, match="was not submitted: Field is required."):
+        screencast.wait_for_navigation_away(
+            "http://example.test/form",
+            error_selector=".fjs-form-field-error",
+            timeout=60,
+        )
+
+
+def test_wait_for_navigation_away_ignores_a_hidden_error_element(tmp_path):
+    screencast, page = _observer(tmp_path)
+    page.url = "http://example.test/next"  # already redirected
+    screencast.wait_for_navigation_away(
+        "http://example.test/form", error_selector=".fjs-form-field-error"
+    )

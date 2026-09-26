@@ -4,8 +4,8 @@ Deeper detail for `SKILL.md`'s summaries. Read that first.
 
 ## Timeline schema v2, field by field
 
-`scripts/screencast/schema/timeline.schema.json` is the source of truth;
-`scripts/screencast/timeline.py`'s `Timeline` class validates against it on
+`src/screencast/schema/timeline.schema.json` is the source of truth;
+`src/screencast/timeline.py`'s `Timeline` class validates against it on
 every load/construction. A document:
 
 ```json
@@ -21,7 +21,9 @@ every load/construction. A document:
      "subtitle": "Drafting", "duration": 8.0},
     {"type": "focus", "time": 20.0, "view": "observer", "scale": 0.4, "margin": 24, "border": 3},
     {"type": "turn_end", "time": 58.0, "actor": "author"},
-    {"type": "hold", "time": 58.0, "duration": 12.0, "view": "observer"}
+    {"type": "hold", "time": 58.0, "duration": 12.0, "view": "observer"},
+    {"type": "caption", "time": 30.0, "text": "Alice submits the form", "duration": 4.0},
+    {"type": "wait", "time": 40.0, "duration": 2.5, "keyword": "Wait For Order"}
   ]
 }
 ```
@@ -38,14 +40,23 @@ every load/construction. A document:
 - **`events[].time`** — always on the observer's clock, same units as
   `actors[].offset`.
 - **`chapter`** — a title card. `duration` is how long the composer holds
-  it; no browser time is spent waiting for it (unlike the old system's 8s
-  `show_actor_slide()`).
+  it; no browser time is spent waiting for it.
 - **`focus`** — which recording (`"actor"` or `"observer"`) is main from
   this point on. `scale`/`margin`/`border` (defaults 0.4/24/3) describe the
   *other* one's inset.
 - **`hold`** — freeze the current frame(s) for `duration` extra seconds.
   `view` (default `"observer"`) is which side is "current" for freezing
-  purposes when a hold coincides with a turn boundary.
+  purposes when a hold coincides with a turn boundary. A hold with
+  `"recorded": true` is real elapsed recording time the library itself
+  noted (the wait after a turn ends, while the observer is brought back to
+  the front): the composer inserts no synthetic freeze for it.
+- **`caption`** — a subtitle cue. The composer maps `time` (observer clock) to
+  the composed output's clock, adding every title card and hold inserted at
+  or before it, and writes `output.vtt` next to `output.webm`.
+- **`wait`** — recorded by the library's listener around the outermost
+  waiting keyword (`Sleep`, `Wait Until Keyword Succeeds`, the engine's own
+  waits, or a keyword tagged `screencast:wait`), for waits of 0.25 s or more.
+  The composer ignores it; `verify`'s `dead_air` check judges it.
 
 `screencast.timeline.OVERLAP_TOLERANCE` (1.5s) is not a schema field — it's
 the composer's tolerance for encoder-startup jitter between a
@@ -57,7 +68,7 @@ should never allow.
 
 ## The composer's segment algorithm
 
-`scripts/screencast/compose.py`'s module docstring has the policy; this is
+`src/screencast/compose.py`'s module docstring has the policy; this is
 the mechanism.
 
 1. Collect every turn's `(actor, start, end)` window from `turn_start`/
@@ -92,7 +103,7 @@ twice does not re-render them.
 
 ## Writing a new `verify` check
 
-`scripts/screencast/verify.py`'s `verify()` returns
+`src/screencast/verify.py`'s `verify()` returns
 `{"ok": bool, "findings": [...], ...}`; each finding is
 `{"check": str, "severity": "error", "message": str}`. To add one:
 
@@ -106,32 +117,20 @@ twice does not re-render them.
    see `test_detect_black_intervals_ignores_a_dark_but_not_black_theme` for
    why a "should not trigger" case matters as much as a "should".
 
-Keep new checks calibrated against this project's own dark-navy title cards
-and Cockpit's own UI, not generic defaults — `blackdetect`'s default
-`pix_th` (10% luma) flags navy `#0f172a` as black, which is exactly why
-`verify.py` tightens it to `0.02`.
+Calibrate new checks against real footage, not generic defaults —
+`blackdetect`'s default `pix_th` (10% luma) flags the dark-navy title cards
+(`#0f172a`) as black, which is exactly why `verify.py` tightens it to `0.02`.
+A check is only worth having if it can tell a healthy take from a broken one
+on real recordings: a whole-frame freeze check could not (a healthy take's
+longest frozen stretch was longer than that of a take with a deliberate 12 s
+sleep), and was removed in favour of judging dead air from the timeline.
 
-## Makefile targets
+## What CI covers
 
-```sh
-make screencast [STORY=review_process]   # run, compose, verify; fixed take dir
-make story-test [STORY=...]              # --no-record, fast, for the fix loop
-make promote-screenshots STORY=...       # copy a take's screenshots into docs/
-make demo-stack STORY=...                # services + site + demo profile + Plone + worker
-make demo-stack-down                     # stop Plone and the worker again
-```
-
-`screencast` and `story-test` need the stack up: `make demo-stack STORY=...` does that in one go (or `make services` + `make start`, see the scenario docs). Never run a story against a stack you did not start: its first task clears the engine's deployments. `STORY` defaults to
-`review_process`; the take directory is `var/screencasts/<story>/latest`
-(or `latest-test`) rather than timestamped, so re-running overwrites in
-place instead of accumulating takes — use `playwright-python -m screencast run
---take DIR` directly when you want to keep more than one.
-
-## What's still manual
-
-Full-content verification against a live Plone/Operaton/Keycloak stack
-(`make services`, `make start`) — CI only covers the engine itself (schema,
-library against a fake Playwright, driver, composer/verifier against real
-ffmpeg on synthetic clips), never a real story's content, since CI has no
-devenv stack. Run `make screencast` (or `story-test` while iterating) by
-hand after any change that could affect a story's actual selectors or flow.
+The engine's own tests (schema, the library against a fake Playwright, the
+driver, the composer and verifier against real ffmpeg on synthetic clips) run
+on Python 3.10 and 3.13 with the oldest supported and the latest Robot
+Framework. They never run a real story's content: that needs the application
+it records. After any change that could affect a story's selectors or flow,
+run the story (`screencast run`, or with `--no-record` while iterating) against
+your application by hand, then `compose` and `verify` it.

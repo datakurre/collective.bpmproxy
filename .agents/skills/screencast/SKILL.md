@@ -1,19 +1,11 @@
 ---
 name: screencast
-description: Record, compose, and verify a multi-actor screencast of a Robot Framework-driven browser scenario in this repository — a Cockpit/Plone demo with several personas, an observer, title cards, and a picture-in-picture composite. Trigger when asked to record a scenario/demo video, add a new persona turn to an existing recording, re-cut a take without re-recording, debug a broken take, or fix dead air/a blank frame/a truncated composite in one. Extends the `browser` skill (recording, human-paced input, PIP composition fundamentals) with the reusable engine this repo built on top of it — read `browser` first if you haven't.
+description: Record, compose, and verify a multi-actor screencast of a Robot Framework-driven browser scenario with the robotframework-screencast engine — several personas taking turns, an observer recording the whole run, title cards, and a picture-in-picture composite. Trigger when asked to record a scenario/demo video, add a persona turn to an existing recording, re-cut a take without re-recording, debug a broken story or take, or fix dead air, a blank frame or a truncated composite. Extends the `browser` skill (recording, human-paced input, PIP composition fundamentals) with the reusable engine built on top of it — read `browser` first if you haven't.
 compatibility: opencode
 metadata:
   workflow: screencast-recording
   audience: developers-and-agents
 ---
-
-> **Provenance.** This skill was extracted together with the engine from
-> collective.bpmproxy and still describes that repository's setup: paths such
-> as `scripts/screencast/` are `src/screencast/` here, `make screencast`,
-> `make demo-stack` and the Operaton/Plone stack are collective.bpmproxy's, and
-> `scripts/screencasts/` is where its stories and `bpmproxy.resource` live (the
-> example use case). Splitting it into a generic part and a project part is
-> open work; see the README.
 
 ## Before you start
 
@@ -22,102 +14,125 @@ metadata:
   and close immediately after (dead air), why the cursor is injected per
   context, and the PIP composition fundamentals (`tpad=stop_mode=clone`,
   never `overlay=...:shortest=1`). Nothing here repeats that.
-- **Never run `playwright install`** — same rule as `browser`. `make shell`
-  (`devenv shell`) provides a paired Playwright + Chromium via
-  `pkgs.playwright-driver.browsers`.
-- Everything here assumes a running stack: `make services` (Operaton,
-  Keycloak, Postgres, Mailpit) and `make start` (Plone) in two terminals
-  inside `make shell`.
+- **Never run `playwright install`** — same rule as `browser`. Provide the
+  browser the way your environment does (a Nix `playwright-driver.browsers`
+  paired with the Python package); `SCREENCAST_CHROMIUM_PATH` points the
+  engine at a specific Chromium build.
+- You need `ffmpeg`/`ffprobe` on the `PATH`, Robot Framework 7.4 or newer, and
+  **the application you are recording running** — the engine drives a browser
+  against it and knows nothing about it. `screencast --version` prints the
+  resolved versions.
+- **Never run a story against an environment you do not own.** Stories
+  usually start by resetting some state; that is what makes a take
+  repeatable, and it is destructive.
 
 # Three layers, one engine
 
 ```
-scripts/screencast/            generic engine — no bpmproxy import anywhere
+src/screencast/                the engine — generic, no application knowledge
   library.py                     Screencast: the Robot Framework keyword library
   timeline.py                    Timeline (EDL) schema v2: load/validate/save
   schema/timeline.schema.json    the JSON Schema timeline.py validates against
   compose.py                     timeline.json -> one ffmpeg filter_complex
-  verify.py                      ffprobe/blackdetect/wait events + contact sheet
-  driver.py, __main__.py         `playwright-python -m screencast` (see below)
+  verify.py                      ffprobe, blank frames, wait events, contact sheet
+  driver.py, __main__.py         the `screencast` command (`python -m screencast`)
+  tests/                         against a fake Playwright and real ffmpeg
 
-scripts/screencasts/           this project's own layer, built on the engine
-  resources/bpmproxy.resource    project keywords (Prepare Fixtures, Open Task, ...)
-  resources/bpmproxy_keywords.py  the few keywords needing the raw Playwright page
-  review_process.robot           one story per scenario, *** Tasks *** suites
-  contact_form.robot
-  renovation_project.robot
+your project                   the two upper layers, yours
+  resources/<app>.resource       keywords in your app's vocabulary
+  <name>.robot                   one story per scenario, *** Tasks *** suites
 
-var/screencasts/<story>/<take>/   everything a take writes (gitignored)
-  page@*.webm                      observer + each actor turn's own clip
-  timeline.json                    schema v2 — see *The timeline*, below
-  output.webm                      playwright-python -m screencast compose's output
-  report.json, contact-sheet.png   playwright-python -m screencast verify's output
+<output>/<story>/<take>/       everything a take writes
+  page@*.webm                    observer + each actor turn's own clip
+  timeline.json                  schema v2 — see *The timeline*, below
+  output.webm                    `screencast compose`'s output
+  report.json, contact-sheet.png `screencast verify`'s output
 ```
 
 Who writes what:
 
-- **The engine** (`scripts/screencast/`) is generic — no BPMN/Plone/Cockpit
-  knowledge anywhere in it. Extend it only for something a *different*
+- **The engine** is generic. Extend it only for something a *different*
   project's screencast would also need (a new selector convention, a new
-  verify check) — see *Extending the engine*, below. It's a candidate for
-  extraction into its own repository once two or three stories built on it
-  are stable (datakurre/collective.bpmproxy#13); keep it that way.
-- **The project resource** (`bpmproxy.resource` + `bpmproxy_keywords.py`) is
-  this project's own vocabulary: `Prepare Fixtures`, `Open Task`,
-  `Workflow Transition`, `Log In To Cockpit`, and so on, all built from the
-  engine's primitives. Add a keyword here when two or more stories would
-  otherwise repeat the same sequence of engine primitives.
-  `scripts/screencast keywords resources/bpmproxy.resource` lists what
-  already exists before you write a new one.
-- **A story** (`scripts/screencasts/<name>.robot`) reads like a screenplay:
-  one `*** Tasks ***` suite, one task per actor turn (plus a few unrecorded
-  setup/observation tasks), built from the resource file's keywords and, for
-  anything genuinely one-off, the engine's own primitives directly
-  (`Human Click role=button[name="..."]`, `Paste Text`, ...).
+  verify check) — see *Extending the engine*, below.
+- **The project resource** is your app's vocabulary: `Log In`, `Add Item`,
+  `Wait For Order`, all built from the engine's primitives. Add a keyword
+  here when two or more stories would otherwise repeat the same sequence.
+  `screencast keywords resources/app.resource` lists what already exists
+  before you write a new one.
+- **A story** reads like a screenplay: one `*** Tasks ***` suite, one task
+  per actor turn (plus a few unrecorded setup/observation tasks), built from
+  the resource file's keywords and, for anything genuinely one-off, the
+  engine's own primitives directly (`Human Click role=button[name="..."]`,
+  `Paste Text`, ...).
+
+A complete worked example of the two upper layers — three stories with
+several personas each and an observer, and the shared keyword layer they use —
+is [collective.bpmproxy](https://github.com/datakurre/collective.bpmproxy)'s
+`scripts/screencasts/`, where the engine was written.
 
 # Scaffolding a new story
-
-```
-scripts/screencasts/my_scenario.robot
-```
 
 ```robotframework
 *** Settings ***
 Documentation     One or two sentences: who does what, and why it's worth recording.
 Library           screencast.Screencast    take_dir=${TAKE_DIR}    record=${RECORD}
-Resource          resources/bpmproxy.resource
+Resource          resources/app.resource
 
 *** Variables ***
-${SHOTS_DIR}      ${TAKE_DIR}/screenshots    # promote to docs/ with `make promote-screenshots`
-${ASSETS_DIR}     examples/my-scenario
+${SHOTS_DIR}      ${TAKE_DIR}/screenshots
 
 *** Tasks ***
 Prepare The Take
-    Prepare Fixtures    ${ASSETS_DIR}    any-leftover-demo-content-path
+    # Unrecorded: reset state. Nothing here may become blank seconds at the
+    # head of a recording.
+    Start Scratch Context    ${BASE_URL}    http_credentials=${{ {'username': 'admin', 'password': 'admin'} }}
+    Reset Demo Data
+    End Scratch Context
 
-Start Observing In Cockpit
-    ${state}=    Log In To Cockpit
-    Start Observer    cockpit    ${COCKPIT_URL}/    storage_state=${state}
-    Open Process In Cockpit    my-process-key
+Start Observing
+    # Log in unrecorded, then hand the session to the recorded observer. A
+    # variable assigned in a task is local to it, so this stays in one task.
+    Start Scratch Context    ${BASE_URL}/login
+    Log In As    admin    admin
+    ${state}=    Get Storage State
+    End Scratch Context
+    Start Observer    dashboard    ${BASE_URL}/dashboard    storage_state=${state}
 
-Persona Does A Thing
-    [Setup]    Start Actor Turn    username    eyebrow=My scenario · 1 / N
-    ...    title=Persona    subtitle=What they're doing
+Alice Does A Thing
+    [Setup]    Start Actor Turn    alice    eyebrow=My scenario · 1 / 2
+    ...    title=Alice    subtitle=What she's doing
     Go To    ${BASE_URL}
     Human Click    role=link[name="Add new…"]
-    ...
+    Human Type    \#title    A page title
+    Human Click    role=button[name="Save"]
+    Take Screenshot    ${SHOTS_DIR}/page-added.png
     [Teardown]    End Actor Turn
 
 Wrap Up
-    Show Completed Instance In History    my-process-key
+    Observe    ${BASE_URL}/dashboard
+    Hold    3
     End Observer
 ```
 
-`${TAKE_DIR}` and `${RECORD}` are supplied by the driver (`python -m
-screencast run`), never hard-coded in the story. `${BASE_URL}`/`${COCKPIT_URL}`
-come from `bpmproxy.resource`.
+`${TAKE_DIR}` and `${RECORD}` are supplied by the driver (`screencast run`),
+never hard-coded in the story. Keywords, by what they are for:
 
-Two rules that are easy to get backwards:
+| Group | Keywords |
+|---|---|
+| Observer | `Start Observer`, `Observe` (bring it to the front; `reload=` only as a deliberate exception), `End Observer` |
+| Actor turns | `Start Actor Turn`, `End Actor Turn` |
+| Unrecorded setup | `Start Scratch Context`, `End Scratch Context`, `Get Storage State` |
+| Human-paced input | `Human Move`, `Human Click`, `Human Type`, `Paste Text` (for long text), `Press Key`, `Select Option`, `Check`, `Uncheck` |
+| Waiting and reading | `Wait Until Visible`, `Wait For Navigation Away`, `Count Matches`, `Get Attribute`, `Get Url`, `Get Current Page` (the raw Playwright page) |
+| Navigation and shots | `Go To`, `Take Screenshot` |
+| Edit events (no browser time) | `Chapter`, `Focus`, `Hold`, `Caption` |
+
+`Start Actor Turn` logs the persona in with HTTP Basic auth as `actor` /
+`password` (the password defaults to the actor's name; pass `anonymous=${True}`
+for a visitor with no login). For anything else, do the login in a scratch
+context and hand the resulting storage state on.
+
+Rules that are easy to get backwards:
 
 - **`Start Observer` first, `End Observer` last, always as the very last
   keyword of the very last task.** Playwright only flushes a context's video
@@ -127,15 +142,21 @@ Two rules that are easy to get backwards:
   `[Setup]`/`[Teardown]` on the same Task. This is what makes "one recorded
   context per turn, opened immediately before, closed immediately after"
   automatic — see the `browser` skill for why that matters.
+- **Never sleep to make a video longer.** A wait is dead air on screen (see
+  *Take verification*). Use `Hold` to freeze a frame in the edit, `Chapter`
+  for a title card; neither spends browser time.
+- **Submit through `Wait For Navigation Away`** (or a keyword built on it)
+  when a form must go through: a rejected submit leaves the page where it
+  was and nothing else says so.
 
-## Selector conventions `Human Click`/`Human Type`/`Wait Until Visible`/etc. understand
+## Selector conventions the input keywords understand
 
 Beyond a plain CSS selector or Playwright's own `role=`/`text=` engines:
 
 | Prefix | Resolves via | For |
 |---|---|---|
-| `label=<text>` | `page.get_by_label()` | A form-js field's own label (most task-form fields) |
-| `<frame> >>> <inner>` | `page.frame_locator(frame).locator(inner)` | Content inside a real `<iframe>` (a rich-text body) — **`>>>` alone in `.locator()` does not cross an iframe boundary**, verified: it parses as a plain child combinator and times out |
+| `label=<text>` | `page.get_by_label()` | A form field's own label |
+| `<frame> >>> <inner>` | `page.frame_locator(frame).locator(inner)` | Content inside a real `<iframe>` (a rich-text body) — **`>>>` alone in `.locator()` does not cross an iframe boundary**: it parses as a plain child combinator and times out |
 | `role=X[name="Y"s]` | Playwright's own role engine | Exact-match a name — the attribute is **not** `[exact=true]`, which errors; `s` is a suffix on the value |
 
 `index=` on the same keywords: `0` (default) is `.first`, `-1` is `.last` —
@@ -143,18 +164,18 @@ e.g. the most recently created row in a table that only grows.
 
 # The timeline
 
-`timeline.json` (schema v2, `scripts/screencast/schema/timeline.schema.json`)
-is the *only* input the composer and verifier need: the observer clip, each
+`timeline.json` (schema v2, `src/screencast/schema/timeline.schema.json`) is
+the *only* input the composer and verifier need: the observer clip, each
 actor clip with its measured offset on the observer's own clock, and a
-chronological event list (`turn_start`/`turn_end`, `chapter`, `focus`,
-`hold`). The library writes it automatically from real keyword start/end
-times — a story never constructs it by hand.
+chronological event list (`turn_start`/`turn_end`, `chapter`, `focus`, `hold`,
+`caption`, `wait`). The library writes it automatically from real keyword
+start/end times — a story never constructs it by hand.
 
 **Re-cutting a take needs no re-recording.** Edit `focus`/`hold` events
-directly in `var/screencasts/<story>/<take>/timeline.json`, then:
+directly in `<take>/timeline.json`, then:
 
 ```sh
-playwright-python -m screencast compose var/screencasts/<story>/<take>/
+screencast compose <take dir>
 ```
 
 Composer defaults, if you're wondering why a take looks a certain way with no
@@ -166,10 +187,9 @@ of these defaults for a specific stretch.
 
 # The agent debug loop
 
-`playwright-python -m screencast` (the wrapper in devenv.nix sets
-`PYTHONPATH=scripts` and provides Playwright; a bare `python` has neither) is a thin CLI over
-`scripts/screencast/driver.py`, whose functions are also plain Python if you
-want to call them directly:
+`screencast` (or `python -m screencast`) is a thin CLI over
+`src/screencast/driver.py`, whose functions are also plain Python if you want
+to call them directly:
 
 1. **`check story.robot`** — Robot Framework's own `--dryrun`: every keyword
    call resolves and validates its arguments against what's actually
@@ -185,14 +205,15 @@ want to call them directly:
        Traceback (most recent call last):
          File ".../library.py", line 487, in human_click
        ...
-       Failure artifacts: var/screencasts/.../failure-143022-0.png, .txt
+       Failure artifacts: <take>/failure-143022-0.png, .txt
    ```
    The path is the keyword call chain (`Task > Setup[args] > Keyword[args]`,
    collapsed to the innermost failure), then the message, then the DEBUG-level
    Python traceback, then any failure-artifact paths the library's own
    listener wrote — a screenshot, `aria_snapshot()`, console log, and URL for
    every page still open when it failed. Read those before touching the
-   story again; the answer is usually right there.
+   story again; the answer is usually right there. The run stops at the first
+   failed task: every later task depends on the state it should have left.
 
    **`--repl-on-failure` is the primary way to debug a broken story.** On
    the first keyword that fails outside any recovery boundary (a `Wait
@@ -218,36 +239,28 @@ want to call them directly:
    the *live* session a previous `run`/`probe` call left open, **as long as
    it happened in this same Python process**: the session is module-level
    state in `screencast.library`, not per-instance, and it does **not**
-   survive a process exit. Two separate `playwright-python -m screencast run` /
-   `playwright-python -m screencast probe` shell commands do *not* share a browser --
-   each is its own process, so `probe` there always starts a fresh one.
-   `--repl` reads one keyword call per line from stdin against the same
-   session for as long as the process stays up, which is the practical way
-   to get several `probe` calls (or a `run` followed by `probe` calls) to
-   share one browser without `--repl-on-failure`: call `driver.run(...)`
-   then `driver.probe(...)`/`driver.repl(...)` directly from one Python
-   script or interpreter, rather than chaining separate `python -m
-   screencast ...` invocations. Useful once a story already passes and you
-   want to poke at the resulting session, or from a script that wants
-   `run`/`probe` as separate, composable calls rather than one paused `run`.
-4. **`keywords resources/bpmproxy.resource`** — lists a resource's keywords
+   survive a process exit. Two separate `screencast run` / `screencast probe`
+   shell commands do *not* share a browser — each is its own process, so
+   `probe` there always starts a fresh one. `--repl` reads one keyword call
+   per line from stdin against the same session for as long as the process
+   stays up; to share one browser between a `run` and later `probe` calls
+   without `--repl-on-failure`, call `driver.run(...)` then
+   `driver.probe(...)`/`driver.repl(...)` from one Python script.
+4. **`keywords resources/app.resource`** — lists a resource's keywords
    with their arguments and doc, so you know what already exists before
    writing a new one or guessing an argument name.
 
 Loop: `run --repl-on-failure` → read the summary → try the fix at the paused
 REPL against the still-open page → Ctrl-D/EOF → `run --no-record` again once
-it's clean → record for real. `--repl-on-failure` runs `Get Current Page`- or
-`Go To`-style probes via `BuiltIn().run_keyword()` in the same process and
-execution context as the run itself — deliberately not a nested
-`TestSuite.run()` (as `probe` uses): Robot Framework's `TestSuite.run()`
-wraps its execution in `with LOGGER:`, and `LOGGER` is a process-wide
-singleton whose `__exit__` unconditionally resets it, discarding every
-listener the *outer*, still-running suite registered — a nested run from
-inside a listener callback returns normally with no exception, but every
-listener notification for the rest of the outer run silently stops
-arriving (verified directly against Robot Framework 7.5 for
-collective/collective.bpmproxy#16, which also flagged the `run`→`probe`
-gap this closes).
+it's clean → record for real. `--repl-on-failure` runs its probes via
+`BuiltIn().run_keyword()` in the same process and execution context as the
+run itself — deliberately not a nested `TestSuite.run()` (as `probe` uses):
+Robot Framework's `TestSuite.run()` wraps its execution in `with LOGGER:`,
+and `LOGGER` is a process-wide singleton whose `__exit__` unconditionally
+resets it, discarding every listener the *outer*, still-running suite
+registered — a nested run from inside a listener callback returns normally
+with no exception, but every listener notification for the rest of the outer
+run silently stops arriving (verified against Robot Framework 7.5).
 
 # Take verification
 
@@ -255,37 +268,46 @@ gap this closes).
 frame, and a truncated composite all still exit 0. Always:
 
 ```sh
-playwright-python -m screencast compose var/screencasts/<story>/<take>/
-playwright-python -m screencast verify var/screencasts/<story>/<take>/
+screencast compose <take dir>
+screencast verify <take dir>
 ```
 
 `verify` writes `report.json` (`{"ok": bool, "findings": [...]}`) and
 `contact-sheet.png`, sampled at a rate derived from the take's own measured
-duration — never a stale hand-tuned value. Findings, by `check`:
+duration — never a stale hand-tuned value. Read the contact sheet: the checks
+catch what they were written for. Findings, by `check`:
 
 | `check` | Means |
 |---|---|
 | `stream` | Not exactly one 1920x1080 25fps video stream |
 | `duration` | Composed duration doesn't match the timeline's own prediction (observer length + every chapter/hold duration) |
-| `dead_air` | Judged from the timeline's `wait` events (recorded around `Sleep`, `Wait Until Keyword Succeeds`, the engine's own waits, and any keyword tagged `screencast:wait`): **error** for one wait over 10 s, warning when all waits together pass 30 s. Tag your own polling keywords: `[Tags]    screencast:wait`, or `@keyword(tags=[WAIT_TAG])` in Python |
-| `blank_frame` | A near-pure-black interval (`blackdetect`, tuned past this project's own dark-navy title cards) — also what missing fonts look like |
-| `empty_inset` | A sampled observer frame at some turn's midpoint is a near-uniform color — that turn's inset would be blank |
+| `dead_air` | Judged from the timeline's `wait` events (recorded around `Sleep`, `Wait Until Keyword Succeeds`, the engine's own waits, and any keyword tagged `screencast:wait`): **error** for one wait over 10 s, warning when all waits together pass 30 s |
+| `blank_frame` | A near-pure-black interval (`blackdetect`, tuned so a dark-navy title card does not count), or an actor's page still one flat colour where the composer enters its clip — also what missing fonts look like |
+| `empty_inset` | A sampled observer frame at some turn's midpoint is a near-uniform colour — that turn's inset would be blank |
+
+**Tag your own polling keywords** so their waiting counts as dead air:
+`[Tags]    screencast:wait` on a user keyword, or
+`@keyword(tags=[WAIT_TAG])` (from `screencast.library`) on a Python one.
+Only the outermost wait counts, and waits under 0.25 s are not recorded.
+Pixels cannot judge dead air — a whole-frame freeze check cannot see cursor
+motion at 1080p and could not tell a healthy take from one with a deliberate
+12 s sleep — which is why the timeline does.
 
 # Extending the engine
 
-Add to `scripts/screencast/library.py` only when the need is generic — not
-"this project's form has a field named X" but "Robot keywords can't express
+Add to `src/screencast/library.py` only when the need is generic — not "this
+app's form has a field named X" but "Robot keywords can't express
 `get_by_label()`/`frame_locator()`/`.last` in plain selector syntax", the
 kind of gap that produced the `label=`/`>>>`/`index=` conventions above.
 Mirror an addition with:
 
-- a unit test in `scripts/screencast/tests/test_library.py` against the fake
+- a unit test in `src/screencast/tests/test_library.py` against the fake
   Playwright in `tests/fakes.py` (extend the fake if the new keyword touches
   a Playwright API it doesn't cover yet) — no real browser needed;
 - if it changes what the composer/verifier read or produce, a
-  `scripts/screencast/tests/test_compose.py`/`test_verify.py` case, which
-  runs against real ffmpeg on tiny synthetic clips.
+  `tests/test_compose.py`/`test_verify.py` case, which runs against real
+  ffmpeg on tiny synthetic clips.
 
 See `reference.md` for the timeline schema's full field reference, the
-composer's segment-boundary algorithm in more depth, writing a new `verify`
-check, and the `Makefile` targets (`make screencast`/`make story-test`).
+composer's segment-boundary algorithm in more depth, and writing a new
+`verify` check.

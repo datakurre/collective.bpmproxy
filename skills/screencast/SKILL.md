@@ -1,27 +1,68 @@
 ---
 name: screencast
-description: Record, compose, and verify a multi-actor screencast of a Robot Framework-driven browser scenario with the robotframework-screencast engine — several personas taking turns, an observer recording the whole run, title cards, and a picture-in-picture composite. Trigger when asked to record a scenario/demo video, add a persona turn to an existing recording, re-cut a take without re-recording, debug a broken story or take, or fix dead air, a blank frame or a truncated composite. Extends the `browser` skill (recording, human-paced input, PIP composition fundamentals) with the reusable engine built on top of it — read `browser` first if you haven't.
-compatibility: opencode
+description: Record, compose, and verify a multi-actor screencast of a Robot Framework-driven browser scenario with the robotframework-screencast Python library (https://github.com/datakurre/robotframework-screencast, documentation https://datakurre.github.io/robotframework-screencast/) — several personas taking turns, an observer recording the whole run, title cards, and a picture-in-picture composite. The library is NOT on PyPI: install it from GitHub, as the skill's first section says. Trigger when asked to record a scenario/demo video or product walkthrough of a web application, add a persona turn to an existing recording, re-cut a take without re-recording, debug a broken story or take, or fix dead air, a blank frame or a truncated composite.
+compatibility: Needs Python 3.10+, ffmpeg and ffprobe on the PATH, a Chromium that Playwright can launch, and network access to install the library from GitHub. The application being recorded must be running and reachable from the machine.
 metadata:
   workflow: screencast-recording
   audience: developers-and-agents
+  library: https://github.com/datakurre/robotframework-screencast
 ---
+
+## Installing the library
+
+This skill drives the **`robotframework-screencast`** Python package. It is
+**not published to PyPI**, so install it from GitHub — and never
+`pip install robotframework-screencast`, which is not this project and could
+resolve to an unrelated package:
+
+```sh
+pip install "git+https://github.com/datakurre/robotframework-screencast"
+# pinned to a tag or commit:
+pip install "git+https://github.com/datakurre/robotframework-screencast@<tag-or-commit>"
+# with uv:
+uv pip install "git+https://github.com/datakurre/robotframework-screencast"
+```
+
+Check it with `screencast --version` (or `python -m screencast --version`): it
+prints the resolved versions of Robot Framework, Playwright, jsonschema and
+ffmpeg. If the command is missing, the package is not installed in the
+environment you are running in — install it there, not somewhere else.
+
+Where to look things up:
+
+- **Documentation:** <https://datakurre.github.io/robotframework-screencast/>
+  (these same pages, plus the timeline schema).
+- **Source and issues:** <https://github.com/datakurre/robotframework-screencast>.
+- **A complete worked example** — three stories with several personas each,
+  the shared keyword layer, and a walkthrough of each scenario — on the
+  repository's `legacy-playground` branch:
+  <https://github.com/datakurre/robotframework-screencast/tree/legacy-playground/scripts/screencasts>.
+- **The installed package itself:**
+  `python -c "import screencast, pathlib; print(pathlib.Path(screencast.__file__).parent)"`.
+  File names below such as `screencast/library.py` are relative to it; in the
+  repository they live under `src/`.
 
 ## Before you start
 
-- Load the `browser` skill first if you haven't — this skill assumes you
-  already know why a recorded context must open immediately before its flow
-  and close immediately after (dead air), why the cursor is injected per
-  context, and the PIP composition fundamentals (`tpad=stop_mode=clone`,
-  never `overlay=...:shortest=1`). Nothing here repeats that.
-- **Never run `playwright install`** — same rule as `browser`. Provide the
-  browser the way your environment does (a Nix `playwright-driver.browsers`
-  paired with the Python package); `SCREENCAST_CHROMIUM_PATH` points the
-  engine at a specific Chromium build.
-- You need `ffmpeg`/`ffprobe` on the `PATH`, Robot Framework 7.4 or newer, and
+- You need `ffmpeg` and `ffprobe` on the `PATH`, Robot Framework 7.4 or newer
+  (installed with the package), a **Chromium that Playwright can launch**, and
   **the application you are recording running** — the engine drives a browser
-  against it and knows nothing about it. `screencast --version` prints the
-  resolved versions.
+  against it and knows nothing about it.
+- **Provide the browser the way your environment does.** In an ordinary
+  environment that is `playwright install chromium`; a sandbox or Nix setup
+  usually supplies one already (follow its own rules — some forbid
+  `playwright install`). `SCREENCAST_CHROMIUM_PATH` points the engine at a
+  specific Chromium build.
+- If your environment has a `browser` skill, read it too: it covers recording
+  fundamentals this skill does not repeat. Without it, the essentials are these.
+  Playwright records a context in real time from `new_page()` to `close()`, so
+  any time a context is open but not driven is dead air in its video; Playwright
+  draws no mouse cursor. The engine handles both — it opens each recorded context
+  just before its flow and closes it right after, and injects a visible cursor —
+  which is why a story must use `Start Actor Turn`/`End Actor Turn` and
+  `Start Observer`/`End Observer` and not open browsers itself. When composing
+  video by hand, never use `overlay=...:shortest=1` (it truncates), and freeze a
+  frame with `tpad=stop_mode=clone`.
 - **Never run a story against an environment you do not own.** Stories
   usually start by resetting some state; that is what makes a take
   repeatable, and it is destructive.
@@ -29,7 +70,7 @@ metadata:
 # Three layers, one engine
 
 ```
-src/screencast/                the engine — generic, no application knowledge
+screencast/                    the installed package — generic, no application knowledge
   library.py                     Screencast: the Robot Framework keyword library
   timeline.py                    Timeline (EDL) schema v2: load/validate/save
   schema/timeline.schema.json    the JSON Schema timeline.py validates against
@@ -67,8 +108,8 @@ Who writes what:
 
 A complete worked example of the two upper layers — three stories with
 several personas each and an observer, and the shared keyword layer they use —
-is the `scripts/screencasts/` of this repository's
-[`legacy-playground`](https://github.com/datakurre/robotframework-screencast/tree/legacy-playground)
+is the `scripts/screencasts/` of the library repository's
+[`legacy-playground`](https://github.com/datakurre/robotframework-screencast/tree/legacy-playground/scripts/screencasts)
 branch, the project (collective.bpmproxy) the engine was written for.
 
 # Scaffolding a new story
@@ -166,7 +207,7 @@ e.g. the most recently created row in a table that only grows.
 
 # The timeline
 
-`timeline.json` (schema v2, `src/screencast/schema/timeline.schema.json`) is
+`timeline.json` (schema v2, `screencast/schema/timeline.schema.json`) is
 the *only* input the composer and verifier need: the observer clip, each
 actor clip with its measured offset on the observer's own clock, and a
 chronological event list (`turn_start`/`turn_end`, `chapter`, `focus`, `hold`,
@@ -241,7 +282,7 @@ version control.
 # The agent debug loop
 
 `screencast` (or `python -m screencast`) is a thin CLI over
-`src/screencast/driver.py`, whose functions are also plain Python if you want
+`screencast/driver.py`, whose functions are also plain Python if you want
 to call them directly:
 
 1. **`check story.robot`** — Robot Framework's own `--dryrun`: every keyword
@@ -347,6 +388,11 @@ motion at 1080p and could not tell a healthy take from one with a deliberate
 12 s sleep — which is why the timeline does.
 
 # Extending the engine
+
+The engine lives at <https://github.com/datakurre/robotframework-screencast>. To
+change it — not just your stories — work in a clone of that repository
+(`pip install -e ".[test]"`, then `pytest`) and open a pull request; an
+installed copy is not the place to edit. The paths below are the repository's.
 
 Add to `src/screencast/library.py` only when the need is generic — not "this
 app's form has a field named X" but "Robot keywords can't express

@@ -102,6 +102,22 @@ Cockpit as the observer) and the project keyword layer
 walk through each story. That branch is the reference example of the two upper
 layers.
 
+## The agent skill
+
+`skills/screencast/` is an agent skill (a `SKILL.md` and a reference) that teaches
+an agent to write, run, debug and verify stories with this library. It is
+self-contained: its first section says how to install the library from GitHub
+(the package is not on PyPI), where the documentation and a worked example are,
+and which environment it needs, so it works in any project, not only in a
+checkout of this repository. Copy the directory into your agent's skills
+directory:
+
+```sh
+git clone --depth 1 https://github.com/datakurre/robotframework-screencast /tmp/robotframework-screencast
+cp -r /tmp/robotframework-screencast/skills/screencast <your project>/.agents/skills/
+# or .claude/skills/, or wherever your agent looks for skills
+```
+
 ## Development
 
 ```sh
@@ -118,7 +134,7 @@ synthetic clips. CI runs them on Robot Framework 7.4.2 and the latest release.
 `main`'s history is the engine's own: it was extracted from the repository's
 former default branch (now `legacy-playground`) with `git filter-repo`, keeping
 only the commits that touched the engine (`scripts/screencast/`, moved to
-`src/screencast/`) and its agent skill (`.agents/skills/screencast/`). Commit
+`src/screencast/`) and its agent skill (`skills/screencast/`). Commit
 messages and code comments that refer to `#N` issues mean issues of this
 repository, and some comments use the Plone and Operaton scenario as
 illustration; the code itself imports and assumes nothing from it.

@@ -2,10 +2,13 @@
 
 Deeper detail for `SKILL.md`'s summaries. Read that first.
 
+File names such as `screencast/timeline.py` are relative to the installed package; in the
+repository they are under `src/`.
+
 ## Timeline schema v2, field by field
 
-`src/screencast/schema/timeline.schema.json` is the source of truth;
-`src/screencast/timeline.py`'s `Timeline` class validates against it on
+`screencast/schema/timeline.schema.json` is the source of truth;
+`screencast/timeline.py`'s `Timeline` class validates against it on
 every load/construction. A document:
 
 ```json
@@ -68,7 +71,7 @@ should never allow.
 
 ## The composer's segment algorithm
 
-`src/screencast/compose.py`'s module docstring has the policy; this is
+`screencast/compose.py`'s module docstring has the policy; this is
 the mechanism.
 
 1. Collect every turn's `(actor, start, end)` window from `turn_start`/
@@ -103,7 +106,7 @@ twice does not re-render them.
 
 ## Writing a new `verify` check
 
-`src/screencast/verify.py`'s `verify()` returns
+`screencast/verify.py`'s `verify()` returns
 `{"ok": bool, "findings": [...], ...}`; each finding is
 `{"check": str, "severity": "error", "message": str}`. To add one:
 

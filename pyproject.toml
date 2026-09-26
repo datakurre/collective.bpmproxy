@@ -46,7 +46,7 @@ packages = ["src/screencast"]
 exclude = ["src/screencast/tests"]
 
 [tool.hatch.build.targets.sdist]
-include = ["/src", "/.agents", "/README.md", "/LICENSE", "/pyproject.toml"]
+include = ["/src", "/skills", "/README.md", "/LICENSE", "/pyproject.toml"]
 
 [tool.pytest.ini_options]
 testpaths = ["src/screencast/tests"]

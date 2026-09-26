@@ -141,15 +141,20 @@ def test_actor_turn_starts_with_the_cursor_centered(tmp_path):
     screencast.end_actor_turn()
 
 
+def _basic(username, password):
+    import base64
+
+    token = base64.b64encode(f"{username}:{password}".encode()).decode()
+    return {"Authorization": f"Basic {token}"}
+
+
 def test_actor_turn_authenticates_with_http_basic_auth_by_default(tmp_path):
     screencast = library_module.Screencast(take_dir=tmp_path)
     screencast.start_observer("cockpit", "http://example.test/cockpit")
     screencast.start_actor_turn("author")
     context = library_module._SESSION._turn_context
-    assert context.kwargs["http_credentials"] == {
-        "username": "author",
-        "password": "author",
-    }
+    assert context.kwargs["extra_http_headers"] == _basic("author", "author")
+    assert "http_credentials" not in context.kwargs
     screencast.end_actor_turn()
 
 
@@ -158,10 +163,7 @@ def test_actor_turn_password_overrides_the_default(tmp_path):
     screencast.start_observer("cockpit", "http://example.test/cockpit")
     screencast.start_actor_turn("reviewer1", password="s3cret")
     context = library_module._SESSION._turn_context
-    assert context.kwargs["http_credentials"] == {
-        "username": "reviewer1",
-        "password": "s3cret",
-    }
+    assert context.kwargs["extra_http_headers"] == _basic("reviewer1", "s3cret")
     screencast.end_actor_turn()
 
 
@@ -433,3 +435,30 @@ def test_starting_a_second_scratch_context_before_closing_raises(tmp_path):
     screencast.start_scratch_context("http://example.test/login")
     with pytest.raises(FatalError):
         screencast.start_scratch_context("http://example.test/login")
+
+
+def test_a_bare_library_import_does_not_reset_the_configured_session(tmp_path):
+    """(found running a story against a live stack) A story imports the
+    library with take_dir/record, then bpmproxy.resource imports it again
+    with no arguments; Robot Framework constructs an instance per import.
+    The second must not send a `--no-record` run's output to ".", nor turn
+    recording back on."""
+    library_module.Screencast(take_dir=tmp_path / "take", record=False)
+    library_module.Screencast()
+    assert library_module._SESSION.take_dir == tmp_path / "take"
+    assert library_module._SESSION.record is False
+
+
+def test_press_key_focuses_the_element_then_presses_the_key(tmp_path):
+    """(found running review_process.robot live) Typing into a form-js tag
+    list never confirms the entry -- the story has to press Enter, and the
+    library had no keyword for it, so the port silently submitted an empty
+    tag list."""
+    screencast = library_module.Screencast(take_dir=tmp_path)
+    screencast.start_observer("cockpit", "http://example.test/cockpit")
+    screencast.start_actor_turn("lead")
+    screencast.press_key(".fjs-taglist-input", "Enter")
+    page = library_module._SESSION.current_page
+    assert page.pressed == [(".fjs-taglist-input", "Enter")]
+    assert page.mouse.moves  # moved to the element first, like Human Click
+    screencast.end_actor_turn()

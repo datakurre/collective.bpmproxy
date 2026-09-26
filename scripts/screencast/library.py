@@ -27,6 +27,7 @@ from screencast.cursor import MOVE_SETTLE_MS
 from screencast.cursor import MOVE_STEPS
 from screencast.cursor import TYPE_DELAY_MS
 from screencast.timeline import Timeline
+import base64
 import os
 import time
 
@@ -240,10 +241,22 @@ class Screencast:
     ROBOT_LIBRARY_SCOPE = "GLOBAL"
     ROBOT_LIBRARY_LISTENER = _Listener()
 
-    def __init__(self, take_dir=".", record=True, headless=True, viewport=None):
-        _SESSION.take_dir = Path(take_dir)
-        _SESSION.record = _as_bool(record)
-        _SESSION.headless = _as_bool(headless)
+    def __init__(self, take_dir=None, record=None, headless=None, viewport=None):
+        # Only arguments that were actually passed change the session. Robot
+        # Framework constructs a library instance for *every* import of it,
+        # and a story's own `Library screencast.Screencast take_dir=... ` is
+        # followed by a resource file's bare `Library screencast.Screencast`
+        # (bpmproxy.resource) -- which used to reset the session to the
+        # defaults, sending a `--no-record` run's videos, timeline and
+        # failure artifacts to the current directory.
+        if take_dir is not None:
+            _SESSION.take_dir = Path(take_dir)
+        elif _SESSION.take_dir is None:
+            _SESSION.take_dir = Path(".")
+        if record is not None:
+            _SESSION.record = _as_bool(record)
+        if headless is not None:
+            _SESSION.headless = _as_bool(headless)
         if viewport:
             _SESSION.viewport = viewport
         if _SESSION.timeline is None:
@@ -388,7 +401,9 @@ class Screencast:
         if storage_state:
             context_kwargs["storage_state"] = storage_state
         if http_credentials:
-            context_kwargs["http_credentials"] = http_credentials
+            context_kwargs["extra_http_headers"] = _basic_auth_headers(
+                http_credentials["username"], http_credentials["password"]
+            )
         context = _SESSION.browser.new_context(**context_kwargs)
         page = context.new_page()
         _track_console(page)
@@ -438,12 +453,11 @@ class Screencast:
 
         Authenticates the context via HTTP Basic Auth as `actor`/`password`
         (defaulting `password` to `actor`, this project's convention for its
-        demo users) unless `anonymous=True` -- the same
-        `extra_http_headers={"Authorization": ...}` the old e2e_*.py scripts
-        used, done here via Playwright's own `http_credentials` context
-        option instead. Without this, every turn ran as an anonymous
-        visitor regardless of `actor`, which most stories cannot get past
-        their first permission-gated click.
+        demo users) unless `anonymous=True`, via an explicit `Authorization`
+        header on the context (see `_basic_auth_headers` for why Playwright's
+        `http_credentials` option cannot be used). Without this, every turn
+        ran as an anonymous visitor regardless of `actor`, which most
+        stories cannot get past their first permission-gated click.
 
         With `title`, also records a `chapter` event: a title card the
         composer inserts ahead of this turn's clip. No time is spent
@@ -463,10 +477,9 @@ class Screencast:
             context_kwargs["record_video_dir"] = str(_SESSION.take_dir)
             context_kwargs["record_video_size"] = _SESSION.viewport
         if not _as_bool(anonymous):
-            context_kwargs["http_credentials"] = {
-                "username": actor,
-                "password": password or actor,
-            }
+            context_kwargs["extra_http_headers"] = _basic_auth_headers(
+                actor, password or actor
+            )
         try:
             context = _SESSION.browser.new_context(**context_kwargs)
             context.add_init_script(CURSOR_SCRIPT)
@@ -727,6 +740,14 @@ class Screencast:
         self._locator(selector, index).fill(text)
         self._page().wait_for_timeout(FILL_SETTLE_MS)
 
+    def press_key(self, selector, key, index=0):
+        """Focus `selector` and press one key (`Enter`, `Tab`,
+        `ArrowDown`, ...) -- e.g. to pick a suggestion from a tag-list
+        input after typing into it, which typing alone never confirms."""
+        self.human_move(selector, index)
+        self._locator(selector, index).press(key)
+        self._page().wait_for_timeout(FILL_SETTLE_MS)
+
     def wait_until_visible(self, selector, timeout=10000, index=0):
         self._locator(selector, index).wait_for(state="visible", timeout=int(timeout))
 
@@ -786,6 +807,22 @@ class Screencast:
         if _SESSION.current_page is None:
             raise FatalError("No open page -- call Start Observer first")
         return _SESSION.current_page
+
+
+def _basic_auth_headers(username, password):
+    """An explicit `Authorization: Basic` header for a context's
+    `extra_http_headers`.
+
+    Playwright's own `http_credentials` context option does NOT work for
+    Plone: it only answers a 401 challenge, and Plone serves its pages to
+    anonymous visitors with a 200 and never challenges -- so the browser
+    never sends the credentials and the page (and every `fetch()` from it)
+    stays anonymous. Verified against a live Plone: with `http_credentials`
+    (even `send="always"`) the front page is anonymous and
+    `@bpmproxy-deployments` returns 401; with this header both are logged in.
+    """
+    token = base64.b64encode(f"{username}:{password}".encode()).decode()
+    return {"Authorization": f"Basic {token}"}
 
 
 def _as_bool(value):

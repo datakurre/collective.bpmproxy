@@ -93,7 +93,7 @@
   scripts.playwright-python.exec = ''
     cd "$DEVENV_ROOT"
     export PYTHONPATH="$DEVENV_ROOT/scripts''${PYTHONPATH:+:$PYTHONPATH}"
-    exec ${pkgs.python312.withPackages (ps: [ ps.playwright ])}/bin/python "$@"
+    exec ${pkgs.python312.withPackages (ps: [ ps.playwright ps.robotframework ps.jsonschema ])}/bin/python "$@"
   '';
 
   services.postgres = {

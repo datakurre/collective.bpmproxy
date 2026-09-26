@@ -60,7 +60,11 @@ Author Drafts And Submits
 
 Cockpit Shows Choose Reviewers
     [Documentation]    The instance now exists: enter it and show the
-    ...    "Choose reviewers" task before the Lead reviewer acts.
+    ...    "Choose reviewers" task before the Lead reviewer acts. Cockpit's
+    ...    instance table loads once and never polls, so re-enter the
+    ...    definition by in-app navigation first; the instance did not
+    ...    exist when it was opened at the start of the take.
+    Open Process In Cockpit    ${PROCESS_KEY}
     Enter Latest Process Instance
     Take Screenshot    ${DOCS_DIR}/review-process-cockpit-choose-reviewers.png
 
@@ -71,7 +75,9 @@ Lead Reviewer Assigns Reviewers
     ...    title=Lead reviewer    subtitle=Choosing reviewers for a parallel assessment
     Open Task    Choose reviewers
     Human Type    .fjs-taglist-input    reviewer1
+    Press Key    .fjs-taglist-input    Enter
     Human Type    .fjs-taglist-input    reviewer2
+    Press Key    .fjs-taglist-input    Enter
     Human Type    label=Instructions for reviewers
     ...    Please recommend or critique the location, without naming it.
     Submit Task Form    Assign Reviewers

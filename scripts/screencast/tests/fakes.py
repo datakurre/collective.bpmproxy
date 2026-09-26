@@ -43,6 +43,9 @@ class FakeLocator:
     def uncheck(self):
         self.page.checked[self.selector] = False
 
+    def press(self, key):
+        self.page.pressed.append((self.selector, key))
+
     def press_sequentially(self, text, delay=0):
         self.page.filled[self.selector] = self.page.filled.get(self.selector, "") + text
 
@@ -94,6 +97,7 @@ class FakePage:
         self.mouse = FakeMouse()
         self.clicked = []
         self.filled = {}
+        self.pressed = []
         self.checked = {}
         self.closed = False
         self.video = (

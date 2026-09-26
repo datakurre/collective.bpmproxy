@@ -208,9 +208,20 @@ def detect_black_intervals(video, min_duration=0.5, pic_th=0.98, pix_th=0.02):
     ]
 
 
+def contact_sheet_fps(duration, rows=6, cols=5):
+    """The sampling rate at which `rows * cols` frames span the *whole*
+    clip. `tile` buffers that many sampled frames before emitting one image,
+    so any higher rate silently covers only the clip's opening: the sheet
+    would never show the back half, which is where a take's ending (the
+    finale, a truncated composite) is. There is deliberately no lower bound
+    -- an earlier `max(..., 0.5)` floor limited every take longer than
+    `rows * cols / 0.5` = 60 s to its first minute."""
+    return (rows * cols) / max(duration, 0.1)
+
+
 def make_contact_sheet(video, output, rows=6, cols=5, duration=None):
     duration = duration or ffprobe_duration(video)
-    fps = max((rows * cols) / max(duration, 0.1), 0.5)
+    fps = contact_sheet_fps(duration, rows, cols)
     subprocess.run(
         [
             "ffmpeg",

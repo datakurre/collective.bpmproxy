@@ -9,3 +9,6 @@ build/
 # Takes: recordings, timelines, reports
 var/
 site/
+# nix build output
+result
+result-*

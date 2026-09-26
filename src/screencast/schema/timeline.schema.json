@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/datakurre/collective.bpmproxy/scripts/screencast/schema/timeline.schema.json",
+  "$id": "https://github.com/datakurre/robotframework-screencast/src/screencast/schema/timeline.schema.json",
   "title": "Screencast timeline (edit-decision list) v2",
   "description": "One take's observer/actor clips and edit events, written by screencast.timeline.Timeline (a Robot Framework ListenerV3) from real keyword start/end times. The composer (screencast.compose) reads this file, and only this file, to build the picture-in-picture output; the verifier (screencast.verify) reads it to know what to expect. All paths are relative to the take directory (var/screencasts/<story>/<take>/).",
   "type": "object",

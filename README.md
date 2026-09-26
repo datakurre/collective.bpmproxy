@@ -82,11 +82,14 @@ Wait For Task
   `SCREENCAST_CHROMIUM_PATH` environment variable points it at a specific
   Chromium build.
 
-Not on PyPI yet. Until it is, install from this branch:
+Not published to PyPI, and no release is planned for now. Install from git:
 
 ```sh
-pip install "git+https://github.com/datakurre/collective.bpmproxy@screencast-engine"
+pip install "git+https://github.com/datakurre/robotframework-screencast"
 ```
+
+Until that repository is created from this branch, use the branch it comes
+from: `pip install "git+https://github.com/datakurre/collective.bpmproxy@screencast-engine"`.
 
 ## An example use case
 
@@ -119,18 +122,16 @@ that refer to `#N` issues mean issues of that repository, and some comments
 use its Plone and Operaton scenario as illustration; the code itself imports
 and assumes nothing from it. See datakurre/collective.bpmproxy#13.
 
-### Before a first release
+### Open work
 
-- Decide the repository and package names (`robotframework-screencast` is a
-  working name) and update `$id` in `src/screencast/schema/timeline.schema.json`,
-  which still points into the collective.bpmproxy repository, and the URLs in
-  `pyproject.toml`.
-- Publish to PyPI; then collective.bpmproxy can depend on the released package
-  instead of carrying its own copy.
-- The `screencast` agent skill (`.agents/skills/screencast/`) still describes
-  the collective.bpmproxy setup (`make screencast`, its stack) and needs
-  splitting into a generic part and a project part.
+- Create the `robotframework-screencast` repository from this branch:
+  `git push git@github.com:datakurre/robotframework-screencast.git screencast-engine:main`.
+  The schema `$id` and the URLs in `pyproject.toml` already point there.
+- Some comments and tests still use collective.bpmproxy's Plone and Operaton
+  scenario as illustration; the code itself imports and assumes nothing from it.
+- collective.bpmproxy keeps its own copy of the engine under `scripts/screencast/`
+  for now; it switches to this package only if one is ever published.
 
 ## License
 
-GPL version 2, as the repository the engine was written in. See `LICENSE`.
+GPL version 2 (`GPL-2.0-only`), like the repository the engine was written in. See `LICENSE`.

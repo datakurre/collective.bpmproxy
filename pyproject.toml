@@ -33,7 +33,7 @@ test = ["pytest>=8"]
 screencast = "screencast.__main__:main"
 
 [project.urls]
-Source = "https://github.com/datakurre/collective.bpmproxy/tree/screencast-engine"
+Source = "https://github.com/datakurre/robotframework-screencast"
 Example = "https://github.com/datakurre/collective.bpmproxy/tree/master/scripts/screencasts"
 
 [tool.hatch.version]

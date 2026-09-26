@@ -591,3 +591,61 @@ def test_waiting_keywords_are_recorded_as_wait_events(tmp_path):
         "Tagged Poll",
     ]
     assert all(w["duration"] >= 0.29 for w in waits)
+
+
+STATE_STORY = """\
+*** Settings ***
+Library    screencast.Screencast    take_dir=${TAKE_DIR}    record=${RECORD}
+
+*** Test Cases ***
+Create
+    Save State    url    http://example.test/made
+
+Use
+    ${url}=    Load State    url
+    Should Be Equal    ${url}    http://example.test/made
+"""
+
+
+def test_task_rerun_continues_from_the_state_the_previous_run_saved(tmp_path):
+    """(datakurre/collective.bpmproxy#26) The point of state: after a full
+    run, `run --take <same dir> --task Use` needs nothing from `Create`."""
+    story = write_story(tmp_path, STATE_STORY)
+    take_dir = tmp_path / "take"
+    code, _ = driver.run(story, take_dir=take_dir, record=False, quiet=True)
+    assert code == 0
+    code, _ = driver.run(story, task="Use", take_dir=take_dir, record=False, quiet=True)
+    assert code == 0
+
+
+def test_task_rerun_without_saved_state_fails_and_says_why(tmp_path):
+    story = write_story(tmp_path, STATE_STORY)
+    code, output = driver.run(
+        story, task="Use", take_dir=tmp_path / "fresh", record=False, quiet=True
+    )
+    assert code != 0
+    assert "No state saved under 'url'" in driver.summarize_failures(output)
+
+
+def test_a_full_run_does_not_see_state_left_by_a_previous_take(tmp_path):
+    """`make screencast` writes every take to the same directory: what the
+    last take saved must not leak into this one."""
+    take_dir = tmp_path / "take"
+    take_dir.mkdir()
+    (take_dir / "state.json").write_text('{"stale": "from the previous take"}')
+    story = write_story(tmp_path, STATE_STORY)
+    code, _ = driver.run(story, take_dir=take_dir, record=False, quiet=True)
+    assert code == 0
+    assert json.loads((take_dir / "state.json").read_text()) == {
+        "url": "http://example.test/made"
+    }
+
+
+def test_a_single_actor_turn_runs_on_its_own_when_not_recording(tmp_path):
+    """`--no-record --task Turn`: the turn's story normally starts the
+    observer first, which a partial run skips."""
+    story = write_story(tmp_path, PASSING_STORY)
+    code, _ = driver.run(
+        story, task="Turn", take_dir=tmp_path / "take", record=False, quiet=True
+    )
+    assert code == 0

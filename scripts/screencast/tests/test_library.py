@@ -8,6 +8,7 @@ from screencast import library as library_module
 from screencast.tests.fakes import fake_sync_playwright
 from screencast.tests.fakes import FakePage
 from screencast.tests.fakes import FakePlaywright
+import json
 import pytest
 import sys
 import types
@@ -522,3 +523,79 @@ def test_wait_for_navigation_away_ignores_a_hidden_error_element(tmp_path):
     screencast.wait_for_navigation_away(
         "http://example.test/form", error_selector=".fjs-form-field-error"
     )
+
+
+def test_state_round_trips_and_survives_a_new_process(tmp_path):
+    """State is a file in the take directory, so a later run -- here a
+    brand-new session, as a new process would have -- reads it back."""
+    screencast = library_module.Screencast(take_dir=tmp_path)
+    screencast.save_state("case_url", "http://example.test/case")
+    screencast.save_state("entries", [{"id": "owner", "roles": ["Reader"]}])
+    assert json.loads((tmp_path / "state.json").read_text()) == {
+        "case_url": "http://example.test/case",
+        "entries": [{"id": "owner", "roles": ["Reader"]}],
+    }
+    assert not list(tmp_path.glob("*.tmp")), "the write is atomic: no scratch file"
+
+    library_module._SESSION.reset()
+    again = library_module.Screencast(take_dir=tmp_path)
+    assert again.load_state("case_url") == "http://example.test/case"
+    assert again.load_state("entries")[0]["id"] == "owner"
+
+
+def test_load_state_of_a_missing_key_names_the_keys_that_exist(tmp_path):
+    screencast = library_module.Screencast(take_dir=tmp_path)
+    screencast.save_state("one", "1")
+    screencast.save_state("two", "2")
+    with pytest.raises(AssertionError, match=r"'three' \(saved: one, two\)"):
+        screencast.load_state("three")
+
+
+def test_load_state_default_is_returned_even_when_it_is_none(tmp_path):
+    screencast = library_module.Screencast(take_dir=tmp_path)
+    assert screencast.load_state("missing", default="fallback") == "fallback"
+    assert screencast.load_state("missing", default=None) is None
+
+
+def test_save_state_rejects_a_value_that_is_not_json(tmp_path):
+    screencast = library_module.Screencast(take_dir=tmp_path)
+    screencast.save_state("kept", "yes")
+    with pytest.raises(AssertionError, match="must be JSON.*not a object"):
+        screencast.save_state("bad", object())
+    assert json.loads((tmp_path / "state.json").read_text()) == {"kept": "yes"}
+
+
+def test_a_corrupt_state_file_is_reported_not_silently_replaced(tmp_path):
+    (tmp_path / "state.json").write_text("{not json")
+    screencast = library_module.Screencast(take_dir=tmp_path)
+    with pytest.raises(AssertionError, match="is not valid JSON"):
+        screencast.load_state("anything")
+    with pytest.raises(AssertionError, match="is not valid JSON"):
+        screencast.save_state("k", "v")
+
+
+def test_clear_state_forgets_everything(tmp_path):
+    screencast = library_module.Screencast(take_dir=tmp_path)
+    screencast.save_state("k", "v")
+    screencast.clear_state()
+    assert not (tmp_path / "state.json").exists()
+    assert screencast.load_state("k", default="gone") == "gone"
+    screencast.clear_state()  # nothing to clear is not an error
+
+
+def test_actor_turn_without_an_observer_works_when_nothing_is_recorded(tmp_path):
+    """A partial `--no-record` run (`--task`) plays one turn without the
+    observer task that would normally have started it."""
+    screencast = library_module.Screencast(take_dir=tmp_path, record=False)
+    screencast.start_actor_turn("alice", title="Alice")
+    screencast.go_to("http://example.test/")
+    screencast.human_click("#go")
+    screencast.end_actor_turn()
+    assert library_module._SESSION.timeline is None
+    assert library_module._SESSION._turn_context is None
+
+
+def test_actor_turn_still_needs_an_observer_when_recording(tmp_path):
+    screencast = library_module.Screencast(take_dir=tmp_path)
+    with pytest.raises(FatalError, match="No observer"):
+        screencast.start_actor_turn("alice")

@@ -138,9 +138,13 @@ screencast:
 # The same story with no recording: fast and assert-only, for the fix loop
 # (`python -m screencast run --no-record` under the hood). The call that
 # asserts is the call that documents, same spirit as `make ui-test`.
+#
+# `TASK="Task name"` re-runs one task on its own, continuing from the state the
+# previous run in this directory saved (see docs: "Re-running one task"):
+# `make story-test STORY=renovation_project TASK="Inspector Approves The Document"`.
 story-test:
 	playwright-python -m screencast run scripts/screencasts/$(STORY).robot \
-		--no-record --take var/screencasts/$(STORY)/latest-test
+		--no-record --take var/screencasts/$(STORY)/latest-test $(if $(TASK),--task "$(TASK)",)
 
 # Copy a take's doc-illustration screenshots into docs/. Stories write them
 # under the take directory (var/screencasts/<story>/latest/screenshots/), not

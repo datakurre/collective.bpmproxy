@@ -124,7 +124,7 @@ make demo-stack-down                     # stop Plone and the worker again
 `screencast` and `story-test` need the stack up: `make demo-stack STORY=...` does that in one go (or `make services` + `make start`, see the scenario docs). Never run a story against a stack you did not start: its first task clears the engine's deployments. `STORY` defaults to
 `review_process`; the take directory is `var/screencasts/<story>/latest`
 (or `latest-test`) rather than timestamped, so re-running overwrites in
-place instead of accumulating takes — use `python -m screencast run
+place instead of accumulating takes — use `playwright-python -m screencast run
 --take DIR` directly when you want to keep more than one.
 
 ## What's still manual

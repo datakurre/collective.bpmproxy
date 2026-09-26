@@ -1,4 +1,4 @@
-.PHONY: all install instance shell services test lint format i18n start reset-site clean backend-build frontend-build frontend-watch test-offline test-live bootstrap-site bootstrap-renovation-demo bootstrap-review-demo bootstrap-contact-form-demo e2e ui-test screenshots services-reset screencast story-test promote-screenshots
+.PHONY: all install instance shell services test lint format i18n start reset-site clean backend-build frontend-build frontend-watch test-offline test-live bootstrap-site bootstrap-renovation-demo bootstrap-review-demo bootstrap-contact-form-demo e2e ui-test screenshots services-reset screencast story-test promote-screenshots demo-stack demo-stack-down plone-stopped
 
 all: install
 
@@ -82,22 +82,30 @@ frontend-watch:
 instance:
 	$(MAKE) -C backend instance/etc/zope.ini
 
-bootstrap-site: instance
+# The bootstrap scripts open the ZODB directly, which Zope locks while Plone
+# runs. Say so plainly instead of failing with a ZODB lock traceback.
+plone-stopped:
+	@if curl -s -m 2 -o /dev/null http://127.0.0.1:8080/; then \
+		echo "Something is listening on :8080 (Plone?). Stop it first: bootstrapping opens the ZODB, which Zope locks while Plone runs." >&2; \
+		exit 1; \
+	fi
+
+bootstrap-site: instance plone-stopped
 	cd backend && uv run zconsole run instance/etc/zope.conf ../scripts/bootstrap_site.py
 
-reset-site: instance
+reset-site: instance plone-stopped
 	$(MAKE) -C backend reset-site
 
 # Install the renovation-project demo profile and its recording-only demo
 # users (owner/contractor/inspector). Run after bootstrap-site, with Plone
 # stopped: it opens the ZODB.
-bootstrap-renovation-demo: instance
+bootstrap-renovation-demo: instance plone-stopped
 	cd backend && uv run zconsole run instance/etc/zope.conf ../scripts/bootstrap_renovation_demo.py
 
-bootstrap-review-demo: instance
+bootstrap-review-demo: instance plone-stopped
 	cd backend && uv run zconsole run instance/etc/zope.conf ../scripts/bootstrap_review_demo.py
 
-bootstrap-contact-form-demo: instance
+bootstrap-contact-form-demo: instance plone-stopped
 	cd backend && uv run zconsole run instance/etc/zope.conf ../scripts/bootstrap_contact_form_demo.py
 
 # Browser smoke test against a running stack: `make services`, `make start`.
@@ -140,3 +148,13 @@ story-test:
 # overwrites the tracked images by accident. Review the diff, then commit.
 promote-screenshots:
 	cp var/screencasts/$(STORY)/latest/screenshots/*.png docs/
+
+# Everything a story needs, in the documented order, on a clean checkout:
+# services, Zope instance, site, the story's demo profile, Plone and its
+# external-task worker. `make demo-stack STORY=contact_form`, then
+# `make screencast STORY=contact_form`.
+demo-stack:
+	scripts/demo_stack.sh $(STORY)
+
+demo-stack-down:
+	scripts/demo_stack.sh down

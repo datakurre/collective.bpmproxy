@@ -44,6 +44,12 @@ The first, cold `devenv up -d` also downloads Operaton's Maven
 dependencies, which takes several minutes; if that stalls, see
 [devenv-browser-smoke.md](devenv-browser-smoke.md).
 
+Or do all of it in one command: `make demo-stack STORY=review_process` brings up the
+services, the Zope instance, the site and this scenario's demo profile, then
+starts Plone and the worker in the background (logs in `var/demo-stack/`);
+`make demo-stack-down` stops them again. It refuses to run when something
+else already answers on port 8080.
+
 The story's `Prepare Fixtures` task clears every existing Operaton deployment
 before deploying this scenario's assets, so each take starts with clean Plone
 and clean Operaton state. `python -m screencast run` writes

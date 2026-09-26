@@ -59,6 +59,9 @@ rm -rf backend/instance
 devenv shell -- bash -c "cd backend && uv run mkwsgiinstance -d instance -u admin:admin"
 ```
 
+`make instance` (which `make reset-site` and `make bootstrap-site` now run for
+you) creates the instance when it is missing.
+
 Then bootstrap with Plone **stopped** (it opens the ZODB directly), and only
 then start Plone:
 
@@ -89,7 +92,22 @@ curl -sf http://127.0.0.1:8025/api/v1/messages      # Mailpit
 the daemon and every service are alive — confirm with
 `ps -ef | grep daemon-processes` before concluding anything is broken.
 
-Two failures behind that message are real:
+Three failures behind that message are real:
+
+- **A stack that is already running.** Another checkout or session on the
+  same machine may hold 5432, 8025, 8080, 8081 and 8082. `devenv up -d` from a
+  second checkout does not fail: it starts a competing set on shifted ports
+  (Mailpit on 8026, Postgres on 5433, Keycloak on 8083), while Operaton still
+  looks for Postgres on 5432 and answers on the *other* stack's 8081. Check
+  `ss -ltnp | grep -E ':(5432|8025|8080|8081|8082) '` first, and never let a
+  story run against a stack you do not own: every story clears the engine's
+  deployments in its first task.
+- **A stalled first Maven download.** A cold start downloads Operaton's
+  dependencies from Maven Central through `./mvnw`. If
+  `devenv processes logs operaton` shows no new `Downloaded from` lines for a
+  minute or two while `curl` to Maven Central is fast, the first attempt is
+  stuck on a connection: `devenv processes restart operaton` resumes from what
+  is already cached and normally starts within seconds.
 
 - **Stale `postmaster.pid`.** After an unclean shutdown, postgres logs
   `FATAL: lock file "postmaster.pid" already exists` and never binds 5432,

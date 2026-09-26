@@ -1,4 +1,4 @@
-.PHONY: all install shell services test lint format i18n start reset-site clean backend-build frontend-build frontend-watch test-offline test-live bootstrap-site bootstrap-renovation-demo bootstrap-review-demo bootstrap-contact-form-demo e2e ui-test screenshots services-reset screencast story-test
+.PHONY: all install instance shell services test lint format i18n start reset-site clean backend-build frontend-build frontend-watch test-offline test-live bootstrap-site bootstrap-renovation-demo bootstrap-review-demo bootstrap-contact-form-demo e2e ui-test screenshots services-reset screencast story-test promote-screenshots
 
 all: install
 
@@ -76,22 +76,28 @@ frontend-watch:
 
 # Create the Plone site the smoke test runs against (and the "manager" and
 # "editor" users it logs in as). Run it with Plone stopped: it opens the ZODB.
-bootstrap-site:
+# Create the Zope instance (backend/instance) on a clean checkout. The
+# bootstrap targets open the ZODB through instance/etc/zope.conf, which
+# only exists once this has run.
+instance:
+	$(MAKE) -C backend instance/etc/zope.ini
+
+bootstrap-site: instance
 	cd backend && uv run zconsole run instance/etc/zope.conf ../scripts/bootstrap_site.py
 
-reset-site:
+reset-site: instance
 	$(MAKE) -C backend reset-site
 
 # Install the renovation-project demo profile and its recording-only demo
 # users (owner/contractor/inspector). Run after bootstrap-site, with Plone
 # stopped: it opens the ZODB.
-bootstrap-renovation-demo:
+bootstrap-renovation-demo: instance
 	cd backend && uv run zconsole run instance/etc/zope.conf ../scripts/bootstrap_renovation_demo.py
 
-bootstrap-review-demo:
+bootstrap-review-demo: instance
 	cd backend && uv run zconsole run instance/etc/zope.conf ../scripts/bootstrap_review_demo.py
 
-bootstrap-contact-form-demo:
+bootstrap-contact-form-demo: instance
 	cd backend && uv run zconsole run instance/etc/zope.conf ../scripts/bootstrap_contact_form_demo.py
 
 # Browser smoke test against a running stack: `make services`, `make start`.
@@ -127,3 +133,10 @@ screencast:
 story-test:
 	playwright-python -m screencast run scripts/screencasts/$(STORY).robot \
 		--no-record --take var/screencasts/$(STORY)/latest-test
+
+# Copy a take's doc-illustration screenshots into docs/. Stories write them
+# under the take directory (var/screencasts/<story>/latest/screenshots/), not
+# straight into docs/: they differ slightly on every run, so a run never
+# overwrites the tracked images by accident. Review the diff, then commit.
+promote-screenshots:
+	cp var/screencasts/$(STORY)/latest/screenshots/*.png docs/

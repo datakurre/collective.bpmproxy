@@ -81,7 +81,7 @@ start: instance/etc/zope.ini
 # faster than `make clean` when e.g. an old site's content/catalog doesn't
 # match the current dependency versions anymore. Stop `make start` first:
 # Zope holds a lock on Data.fs while running.
-reset-site:
+reset-site: instance/etc/zope.ini
 	rm -f instance/var/Data.fs*
 	rm -rf instance/var/blobstorage
 	mkdir -p instance/var/log instance/var/cache

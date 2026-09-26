@@ -50,6 +50,12 @@ make start
 until curl -sf http://127.0.0.1:8080/Plone >/dev/null; do sleep 3; done
 ```
 
+On a clean checkout `make reset-site` and `make bootstrap-site` create the
+Zope instance first (`make instance`), so this sequence works as written.
+The first, cold `devenv up -d` also downloads Operaton's Maven
+dependencies, which takes several minutes; if that stalls, see
+[devenv-browser-smoke.md](devenv-browser-smoke.md).
+
 Deploy the case process:
 
 ```sh
@@ -136,9 +142,12 @@ Written to `var/screencasts/renovation_project/<take>/` (gitignored):
 | `output.webm` | The composite, actor turns as picture-in-picture over the Cockpit observer |
 | `report.json` / `contact-sheet.png` | `python -m screencast verify`'s findings and contact sheet |
 
-The doc-illustration screenshots below are the exception: the story writes
-them straight to `docs/`, since these specific names are the ones this
-document actually uses.
+The doc-illustration screenshots below are written under the take too
+(`var/screencasts/renovation_project/<take>/screenshots/`). They differ slightly on
+every run, so a run never overwrites the tracked copies in `docs/` by
+accident; after a take you are happy with,
+`make promote-screenshots STORY=renovation_project` copies the latest ones into `docs/`
+(review the diff, then commit).
 
 | Screenshot | Description |
 | --- | --- |

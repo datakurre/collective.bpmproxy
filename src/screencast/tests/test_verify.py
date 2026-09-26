@@ -444,3 +444,13 @@ def test_verify_passes_a_take_with_a_correctly_mapped_caption(tmp_path):
     report = verify(take_dir)
     assert report["ok"], report["findings"]
     assert not any(f["check"] == "captions" for f in report["findings"])
+
+
+def test_contact_sheet_fps_spans_the_whole_clip_however_long():
+    """(found reviewing a real 170 s take) A `max(..., 0.5)` floor made the
+    sheet cover only the first 60 s of any longer take."""
+    from screencast.verify import contact_sheet_fps
+
+    for duration in (10, 60, 170, 900):
+        fps = contact_sheet_fps(duration, rows=6, cols=5)
+        assert 30 / fps == pytest.approx(duration)  # 30 frames span it all

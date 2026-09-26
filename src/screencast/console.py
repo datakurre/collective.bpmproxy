@@ -1,15 +1,16 @@
 """A compact console for `screencast run`: one line per task/turn instead
 of Robot Framework's default per-keyword verbose trace, which buries a
 story's own progress under every Human Click and wait_for_timeout call.
+
+`robot.api.console.BaseConsole` only exists from Robot Framework 7.5, but
+nixpkgs (which devenv's `playwright-python` wrapper uses) can lag behind, so
+older versions get a plain listener that prints the same lines.
 """
 
-from robot.api import console
+import sys
 
 
-class TaskConsole(console.BaseConsole):
-    """Attached as a listener (not via `console=`), since BaseConsole's
-    hook methods are the listener API, per its own docstring."""
-
+class _TaskLines:
     def start_suite(self, data, result):
         if data.parent is None:
             self.write(f"{result.name}\n")
@@ -24,3 +25,24 @@ class TaskConsole(console.BaseConsole):
         if data.parent is None:
             stats = result.statistics
             self.write(f"{stats.total} run, {stats.failed} failed\n")
+
+
+try:
+    from robot.api.console import BaseConsole
+except ImportError:  # Robot Framework < 7.5
+
+    class TaskConsole(_TaskLines):
+        ROBOT_LISTENER_API_VERSION = 3
+
+        def write(self, text):
+            sys.stdout.write(text)
+            sys.stdout.flush()
+
+        def highlight(self, status, text):
+            self.write(text)
+
+else:
+
+    class TaskConsole(_TaskLines, BaseConsole):
+        """Attached as a listener (not via `console=`), since BaseConsole's
+        hook methods are the listener API, per its own docstring."""

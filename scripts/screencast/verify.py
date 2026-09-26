@@ -363,10 +363,20 @@ def verify(take_dir, output_video=None, contact_sheet=None, rows=6, cols=5):
     # overlays the observer as a bordered inset, and that border alone
     # keeps the composited frame's luma range well above BLANK_LUMA_RANGE
     # regardless of whether the actor's own content is blank.
-    for clip in timeline.actors:
+    # The composer enters a turn's clip at its turn_start mark, not at the
+    # clip's first frame: a page paints a fraction of a second after its
+    # context opens, and that blank lead-in is cut. Sample just after where
+    # the composer actually enters the clip (turn_start events pair with the
+    # actor clips in order, as in compose), so a lead-in it never shows is
+    # not reported -- a fixed offset into the raw clip failed a healthy take
+    # whenever the page painted slightly slower than usual.
+    starts = sorted(timeline.events_of("turn_start"), key=lambda e: e["time"])
+    paired = len(starts) == len(timeline.actors)
+    for index, clip in enumerate(timeline.actors):
         clip_path = take_dir / clip["video"]
         clip_duration = ffprobe_duration(clip_path)
-        at = min(TURN_OPEN_SAMPLE_OFFSET, max(0.0, clip_duration - 0.05))
+        entered = max(0.0, starts[index]["time"] - clip["offset"]) if paired else 0.0
+        at = min(entered + TURN_OPEN_SAMPLE_OFFSET, max(0.0, clip_duration - 0.05))
         luma_range = frame_luma_range(clip_path, at)
         if luma_range < BLANK_LUMA_RANGE:
             findings.append(

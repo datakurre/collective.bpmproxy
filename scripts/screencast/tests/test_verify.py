@@ -184,6 +184,43 @@ def make_freeze_then_move_clip(path, freeze_at, freeze_duration, total_duration)
     )
 
 
+def make_flat_then_animated_clip(path, flat_seconds, total_duration, color="white"):
+    """A clip that is one flat colour for `flat_seconds` (a page that has not
+    painted yet), then animated."""
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            f"color=c={color}:s=320x180:d={flat_seconds}:r=25",
+            "-f",
+            "lavfi",
+            "-i",
+            f"color=c=blue:s=320x180:d={total_duration - flat_seconds}:r=25",
+            "-filter_complex",
+            "[1:v]noise=alls=40:allf=t+u[b];[0:v][b]concat=n=2:v=1:a=0[out]",
+            "-map",
+            "[out]",
+            "-c:v",
+            "libvpx",
+            "-deadline",
+            "good",
+            "-cpu-used",
+            "5",
+            "-crf",
+            "20",
+            "-b:v",
+            "4M",
+            str(path),
+        ],
+        check=True,
+    )
+
+
 def make_take(take_dir, observer_duration=4.0, with_turn=True):
     take_dir.mkdir(parents=True, exist_ok=True)
     make_animated_clip(take_dir / "observer.webm", observer_duration)
@@ -454,3 +491,43 @@ def test_contact_sheet_fps_spans_the_whole_clip_however_long():
     for duration in (10, 60, 170, 900):
         fps = contact_sheet_fps(duration, rows=6, cols=5)
         assert 30 / fps == pytest.approx(duration)  # 30 frames span it all
+
+
+def _take_with_deferred_turn_start(take_dir, flat_seconds):
+    """An observer, plus one actor clip that is flat white for
+    `flat_seconds` and then animated, whose turn_start is deferred 0.5s
+    into the clip (the first page load)."""
+    take_dir.mkdir(parents=True, exist_ok=True)
+    make_animated_clip(take_dir / "observer.webm", 5.0)
+    make_flat_then_animated_clip(take_dir / "author.webm", flat_seconds, 3.0)
+    timeline = Timeline.new("observer.webm")
+    timeline.add_actor_clip("author", "author.webm", offset=1.0, duration=3.0)
+    timeline.add_event({"type": "turn_start", "time": 1.5, "actor": "author"})
+    timeline.add_event({"type": "turn_end", "time": 4.0, "actor": "author"})
+    timeline.save(take_dir / "timeline.json")
+    compose(take_dir)
+
+
+@requires_ffmpeg
+def test_verify_ignores_a_blank_lead_in_the_composer_never_shows(tmp_path):
+    """(regression, found by a live contact_form take) The clip is blank for
+    its first 0.4s, but the composer enters it at turn_start, 0.5s in, so
+    the viewer never sees that. Sampling a fixed 0.15s into the raw clip
+    flagged a healthy take, whenever the page painted a little slower."""
+    take_dir = tmp_path / "take"
+    _take_with_deferred_turn_start(take_dir, flat_seconds=0.4)
+    report = verify(take_dir)
+    assert not any(f["check"] == "blank_frame" for f in report["findings"])
+
+
+@requires_ffmpeg
+def test_verify_still_flags_a_page_that_is_flat_at_the_turn_start(tmp_path):
+    """The other half: a page still blank *after* turn_start is exactly what
+    the check is for."""
+    take_dir = tmp_path / "take"
+    _take_with_deferred_turn_start(take_dir, flat_seconds=1.5)
+    report = verify(take_dir)
+    assert any(
+        f["check"] == "blank_frame" and "author" in f["message"]
+        for f in report["findings"]
+    )

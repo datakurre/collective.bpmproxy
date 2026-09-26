@@ -801,6 +801,7 @@ class Screencast:
         return self._page()
 
     def take_screenshot(self, path, full_page=True):
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
         self._page().screenshot(path=str(path), full_page=_as_bool(full_page))
 
     def _page(self):

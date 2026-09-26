@@ -12,7 +12,7 @@ Resource          resources/bpmproxy.resource
 
 
 *** Variables ***
-${DOCS_DIR}         ${CURDIR}/../../docs
+${SHOTS_DIR}         ${TAKE_DIR}/screenshots
 ${ASSETS_DIR}       examples/contact-form
 ${PROCESS_KEY}      example-contact-form
 ${PROXY_PATH}       contact-us
@@ -49,7 +49,7 @@ Reception Creates And Publishes The Proxy
     Human Click    role=link[name="Process diagram"s]
     Human Click    role=link[name="State: Private"]
     Human Click    a[href*="workflow_action=publish"]    index=-1
-    Take Screenshot    ${DOCS_DIR}/contact-form-proxy-created.png
+    Take Screenshot    ${SHOTS_DIR}/contact-form-proxy-created.png
     [Teardown]    End Actor Turn
 
 First Visitor Submits
@@ -59,7 +59,7 @@ First Visitor Submits
     ...    anonymous=${True}
     Go To    ${PROXY_URL}
     Wait Until Visible    \#collective-bpmproxy-form .fjs-container
-    Take Screenshot    ${DOCS_DIR}/contact-form-start-form.png
+    Take Screenshot    ${SHOTS_DIR}/contact-form-start-form.png
     Human Type    label=Your Name    Conference visitor
     Human Type    label=Your Email    venue@example.com
     Human Type    label=Subject    Venue availability for a conference
@@ -88,7 +88,7 @@ Second Visitor Submits
 Cockpit Shows Both Instances
     Open Process In Cockpit    ${PROCESS_KEY}
     Enter Latest Process Instance
-    Take Screenshot    ${DOCS_DIR}/contact-form-cockpit-concurrent-instances.png
+    Take Screenshot    ${SHOTS_DIR}/contact-form-cockpit-concurrent-instances.png
 
 Reception Replies To The First Inquiry
     [Documentation]    Contact form · 4 / 6.
@@ -97,7 +97,7 @@ Reception Replies To The First Inquiry
     # The task list is newest-first: the venue inquiry was submitted
     # first, so its task is the last row, not the first.
     Open Task    Review contact    base_url=${PROXY_URL}    index=-1
-    Take Screenshot    ${DOCS_DIR}/contact-form-review-tasks.png
+    Take Screenshot    ${SHOTS_DIR}/contact-form-review-tasks.png
     Human Click    label=Reply to sender by email
     Paste Text    label=Reply message
     ...    Thank you for your inquiry. The venue is available, and we would be happy to discuss dates and room arrangements.
@@ -124,7 +124,7 @@ Specialist Replies To The Delegated Inquiry
     [Setup]    Start Actor Turn    specialist    eyebrow=Contact form · 6 / 6
     ...    title=Specialist    subtitle=Replying to the delegated sponsorship inquiry
     Open Task    Handle delegated contact    base_url=${PROXY_URL}
-    Take Screenshot    ${DOCS_DIR}/contact-form-delegated-task.png
+    Take Screenshot    ${SHOTS_DIR}/contact-form-delegated-task.png
     Human Click    label=Reply to sender by email
     Paste Text    label=Reply message
     ...    Thank you for asking about sponsorship. I have attached our current sponsorship options and would be glad to answer any questions.
@@ -136,8 +136,8 @@ Wrap Up In Cockpit History
     ...    Cockpit's History view, then screenshot Mailpit's own inbox.
     Wait For Mail    Re: Sponsorship options    mailpit_url=${MAILPIT_URL}
     Show Completed Instance In History    ${PROCESS_KEY}
-    Take Screenshot    ${DOCS_DIR}/contact-form-cockpit-completed.png
+    Take Screenshot    ${SHOTS_DIR}/contact-form-cockpit-completed.png
     End Observer
     Start Scratch Context    ${MAILPIT_URL}
-    Take Screenshot    ${DOCS_DIR}/contact-form-mailpit.png
+    Take Screenshot    ${SHOTS_DIR}/contact-form-mailpit.png
     End Scratch Context

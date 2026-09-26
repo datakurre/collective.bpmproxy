@@ -20,6 +20,7 @@ from datetime import datetime
 from pathlib import Path
 from robot.api import FatalError
 from robot.api import logger
+from robot.utils import timestr_to_secs
 from screencast.cursor import CLICK_SETTLE_MS
 from screencast.cursor import CURSOR_SCRIPT
 from screencast.cursor import FILL_SETTLE_MS
@@ -793,6 +794,43 @@ class Screencast:
         page.goto(url, wait_until="load")
         if page is _SESSION._turn_page and not _SESSION._turn_start_recorded:
             self._record_turn_start()
+
+    def get_url(self):
+        """The current page's URL."""
+        return self._page().url
+
+    def wait_for_navigation_away(self, from_url, error_selector=None, timeout=15):
+        """Wait until the current page is no longer at `from_url`, i.e. a
+        form submit actually went through and redirected somewhere else.
+
+        A click on a submit button that the page then rejects (a form-js
+        field that failed validation, say) leaves the URL unchanged and
+        nothing on screen says the story went wrong, so a story that never
+        completed its task would still "pass" here and only fail, much
+        later, in an unrelated turn. Fail at the step that failed instead:
+        immediately, with the visible message, when an element matching
+        `error_selector` is on screen; otherwise when `timeout` (seconds, or
+        a Robot time string such as `15s`) runs out.
+        """
+        page = self._page()
+        limit = timestr_to_secs(timeout)
+        deadline = time.monotonic() + limit
+        while True:
+            if page.url != from_url:
+                return
+            if error_selector:
+                errors = page.locator(error_selector)
+                if errors.count() and errors.first.is_visible():
+                    message = errors.first.inner_text().strip() or repr(error_selector)
+                    raise AssertionError(
+                        f"The form at {from_url} was not submitted: {message}"
+                    )
+            if time.monotonic() >= deadline:
+                raise AssertionError(
+                    f"The page stayed at {from_url} for {limit:g}s after the "
+                    "submit: the form was not accepted"
+                )
+            page.wait_for_timeout(250)
 
     def get_current_page(self):
         """Return the live Playwright Page for the current context, for

@@ -171,9 +171,16 @@ Open Task
 Submit Task Form
     [Documentation]    Click a task form's submit button by its visible
     ...    label (forms in this project use varied labels: "Submit Review",
-    ...    "Complete Review", "Assign Reviewers", ...).
-    [Arguments]    ${button_label}=Submit
+    ...    "Complete Review", "Assign Reviewers", ...), then require that the
+    ...    submit went through: the page must leave the task form. A form
+    ...    that rejected the submit (a form-js field that failed validation)
+    ...    fails *here*, with the visible message, instead of passing and
+    ...    breaking a later, unrelated turn.
+    [Arguments]    ${button_label}=Submit    ${timeout}=15s
+    ${form_url}=    Get Url
     Human Click    role=button[name="${button_label}"]
+    Wait For Navigation Away    ${form_url}    error_selector=.fjs-form-field-error
+    ...    timeout=${timeout}
 
 Wait For Workflow State
     [Documentation]    Poll a document's URL until its workflow state label

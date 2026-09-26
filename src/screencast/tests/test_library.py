@@ -462,3 +462,15 @@ def test_press_key_focuses_the_element_then_presses_the_key(tmp_path):
     assert page.pressed == [(".fjs-taglist-input", "Enter")]
     assert page.mouse.moves  # moved to the element first, like Human Click
     screencast.end_actor_turn()
+
+
+def test_take_screenshot_creates_its_missing_parent_directory(tmp_path):
+    """Stories write doc-illustration screenshots under the take directory
+    (<take>/screenshots/), which nothing else creates. Playwright's
+    screenshot() may not create it, so Take Screenshot must."""
+    screencast = library_module.Screencast(take_dir=tmp_path)
+    screencast.start_observer("observer", "http://example.test")
+    target = tmp_path / "screenshots" / "nested" / "shot.png"
+    assert not target.parent.exists()
+    screencast.take_screenshot(target)
+    assert target.parent.is_dir()

@@ -80,7 +80,7 @@ Library           screencast.Screencast    take_dir=${TAKE_DIR}    record=${RECO
 Resource          resources/bpmproxy.resource
 
 *** Variables ***
-${DOCS_DIR}       ${CURDIR}/../../docs
+${SHOTS_DIR}      ${TAKE_DIR}/screenshots    # promote to docs/ with `make promote-screenshots`
 ${ASSETS_DIR}     examples/my-scenario
 
 *** Tasks ***

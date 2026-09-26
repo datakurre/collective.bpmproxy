@@ -1,9 +1,11 @@
 """Shared browser plumbing for the uitest scenarios.
 
-Consolidates what scripts/e2e_smoke.py and scripts/scenarios/e2e_renovation_project.py
-had each grown their own copy of: result collection, per-page console and
-network watching, authenticated contexts, and REST calls issued from inside an
-authenticated page.
+Consolidates what scripts/e2e_smoke.py and the old
+scripts/scenarios/e2e_renovation_project.py (replaced by
+scripts/screencasts/renovation_project.robot, see
+collective/collective.bpmproxy#10) had each grown their own copy of: result
+collection, per-page console and network watching, authenticated contexts,
+and REST calls issued from inside an authenticated page.
 """
 
 from playwright.sync_api import sync_playwright

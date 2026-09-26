@@ -66,3 +66,8 @@ tmp/
 # Large media (not worth tracking in git history)
 scripts/**/*.webm
 scripts/**/*.json
+# ...but the screencast engine's own JSON Schema is source, not recording
+# output.
+!scripts/screencast/schema/*.json
+docs/*.webm
+docs/*-timing.json

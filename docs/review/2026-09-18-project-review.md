@@ -440,9 +440,11 @@ scaffolding that cannot currently execute — either wire them up or drop them.
 ### L8 — Remaining documentation gaps
 - `frontend/README.md` — the Volto design note (a genuinely useful REST-endpoint plan)
   uses pre-monorepo `src/collective/bpmproxy/…` paths throughout.
-- `docs/AGENTS.md` documents `playwright-python scripts/e2e_request_for_quote.py`, but no
+- ~~`docs/AGENTS.md` documents `playwright-python scripts/e2e_request_for_quote.py`, but no
   `playwright-python` command is defined anywhere in the repo; `devenv.nix` provides only
-  `e2e-smoke`. The documented invocation depends on an external wrapper.
+  `e2e-smoke`.~~ Resolved: `devenv.nix` now defines a `playwright-python` script
+  (`scripts.playwright-python.exec`), matching the wrapper `docs/AGENTS.md` and the
+  `browser` agent skill document.
 - `backend/news/` has 4 towncrier fragments (`+oidc`, `+operaton`, `+plone6`,
   `+vite-modeler`) and **none** for the case-demo, renovation-demo, or diagram-visibility
   work.

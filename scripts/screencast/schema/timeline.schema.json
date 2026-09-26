@@ -1,0 +1,170 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/datakurre/collective.bpmproxy/scripts/screencast/schema/timeline.schema.json",
+  "title": "Screencast timeline (edit-decision list) v2",
+  "description": "One take's observer/actor clips and edit events, written by screencast.timeline.Timeline (a Robot Framework ListenerV3) from real keyword start/end times. The composer (screencast.compose) reads this file, and only this file, to build the picture-in-picture output; the verifier (screencast.verify) reads it to know what to expect. All paths are relative to the take directory (var/screencasts/<story>/<take>/).",
+  "type": "object",
+  "required": ["version", "observer", "actors", "events"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "const": 2,
+      "description": "The composer and verifier refuse any other value."
+    },
+    "observer": {
+      "$ref": "#/$defs/clip",
+      "description": "The single recording that spans the whole take -- opened first and closed last -- that every actor turn is composited against."
+    },
+    "actors": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/actorClip" },
+      "description": "One entry per recorded actor turn, in chronological order."
+    },
+    "events": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/event" }
+    }
+  },
+  "$defs": {
+    "clip": {
+      "type": "object",
+      "required": ["video"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "video": {
+          "type": "string",
+          "description": "Path to the recorded .webm, relative to the take directory."
+        }
+      }
+    },
+    "actorClip": {
+      "type": "object",
+      "required": ["actor", "video", "offset"],
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "type": "string",
+          "description": "Persona name, matching the 'actor' field on this clip's turn_start/turn_end events."
+        },
+        "video": {
+          "type": "string",
+          "description": "Path to the recorded .webm, relative to the take directory."
+        },
+        "offset": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Seconds from the observer recording's start to this clip's start (context creation), measured with the same clock as the observer, i.e. time.monotonic() - started."
+        },
+        "duration": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Optional: the clip's measured duration in seconds (ffprobe). The composer re-measures this itself and does not trust a stale value here."
+        }
+      }
+    },
+    "event": {
+      "oneOf": [
+        { "$ref": "#/$defs/turnStartEvent" },
+        { "$ref": "#/$defs/turnEndEvent" },
+        { "$ref": "#/$defs/chapterEvent" },
+        { "$ref": "#/$defs/focusEvent" },
+        { "$ref": "#/$defs/holdEvent" },
+        { "$ref": "#/$defs/captionEvent" }
+      ]
+    },
+    "turnStartEvent": {
+      "type": "object",
+      "required": ["type", "time", "actor"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "turn_start" },
+        "time": { "type": "number", "minimum": 0 },
+        "actor": { "type": "string" }
+      }
+    },
+    "turnEndEvent": {
+      "type": "object",
+      "required": ["type", "time", "actor"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "turn_end" },
+        "time": { "type": "number", "minimum": 0 },
+        "actor": { "type": "string" }
+      }
+    },
+    "chapterEvent": {
+      "type": "object",
+      "required": ["type", "time", "eyebrow", "title", "subtitle"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "chapter" },
+        "time": { "type": "number", "minimum": 0 },
+        "eyebrow": { "type": "string" },
+        "title": { "type": "string" },
+        "subtitle": { "type": "string" },
+        "duration": { "type": "number", "exclusiveMinimum": 0, "default": 8.0 }
+      }
+    },
+    "focusEvent": {
+      "type": "object",
+      "required": ["type", "time", "view"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "focus" },
+        "time": { "type": "number", "minimum": 0 },
+        "view": {
+          "enum": ["actor", "observer"],
+          "description": "Which recording is the main (full-frame) view from this point on; the other becomes the inset."
+        },
+        "scale": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "default": 0.4,
+          "description": "Inset scale, as a fraction of the main frame's width."
+        },
+        "margin": { "type": "integer", "minimum": 0, "default": 24 },
+        "border": { "type": "integer", "minimum": 0, "default": 3 }
+      }
+    },
+    "holdEvent": {
+      "type": "object",
+      "required": ["type", "time", "duration"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "hold" },
+        "time": { "type": "number", "minimum": 0 },
+        "duration": {
+          "type": "number",
+          "description": "Extra seconds to hold the observer's frame at 'time' before continuing. Must not be negative once the overlap tolerance (screencast.timeline.OVERLAP_TOLERANCE) is applied."
+        },
+        "view": {
+          "enum": ["actor", "observer"],
+          "default": "observer"
+        },
+        "recorded": {
+          "type": "boolean",
+          "default": false,
+          "description": "True for a hold the library itself derived from real elapsed recording time (e.g. the return-to-observer wait after a turn), as opposed to a story's own Hold call. The composer does not insert a synthetic freeze for one (that time is already real footage in the observer clip); the verifier's dead_air check still budgets for it."
+        }
+      }
+    },
+    "captionEvent": {
+      "type": "object",
+      "required": ["type", "time", "text"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "caption" },
+        "time": { "type": "number", "minimum": 0 },
+        "text": { "type": "string" },
+        "duration": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 4.0,
+          "description": "How long the cue stays on screen, in seconds. The composer maps 'time' (raw, observer-clock) to the cue's position in the composed output -- adding every inserted chapter/hold segment at or before it -- but does not otherwise adjust 'duration'."
+        }
+      }
+    }
+  }
+}

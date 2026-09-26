@@ -93,3 +93,26 @@ jobs:
       # wrapper's .mvn/wrapper/maven-wrapper.properties going missing again.
       - name: Run tests
         run: ./mvnw -B test
+
+  screencast-engine:
+    name: Screencast engine (scripts/screencast/)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # Only the engine's own tests, not the stories in scripts/screencasts/:
+      # those need a live Plone/Operaton/Keycloak stack devenv provides and
+      # CI does not (see docs/AGENTS.md). The engine's tests need none of
+      # that -- screencast.library is tested against a fake Playwright
+      # (tests/fakes.py), and the composer/verifier against real ffmpeg on
+      # tiny synthetic clips -- so they run here on every push/PR, unlike
+      # the old e2e_*.py scripts this replaced, which had no CI coverage at
+      # all.
+      - name: Install ffmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y ffmpeg
+      - name: Install test dependencies
+        run: pip install pytest robotframework jsonschema
+      - name: Run tests
+        run: PYTHONPATH=scripts python -m pytest scripts/screencast/tests/

@@ -1,4 +1,4 @@
-.PHONY: all install shell services test lint format i18n start reset-site clean backend-build frontend-build frontend-watch test-offline test-live bootstrap-site bootstrap-renovation-demo bootstrap-review-demo bootstrap-contact-form-demo e2e ui-test screenshots services-reset
+.PHONY: all install shell services test lint format i18n start reset-site clean backend-build frontend-build frontend-watch test-offline test-live bootstrap-site bootstrap-renovation-demo bootstrap-review-demo bootstrap-contact-form-demo e2e ui-test screenshots services-reset screencast story-test
 
 all: install
 
@@ -108,3 +108,22 @@ ui-test:
 # if docs/user/ and the shot registry have drifted apart.
 screenshots:
 	ui-test --check-docs
+
+# Record, compose, and verify a screencast story end to end (see
+# scripts/screencast/ and scripts/screencasts/, collective/collective.bpmproxy#1).
+# Requires the services and Plone running (`make services`, `make start`).
+# Override the story with `make screencast STORY=contact_form`; the take
+# directory is fixed (not timestamped) so this can be re-run in place.
+STORY ?= review_process
+screencast:
+	playwright-python -m screencast run scripts/screencasts/$(STORY).robot \
+		--take var/screencasts/$(STORY)/latest
+	playwright-python -m screencast compose var/screencasts/$(STORY)/latest
+	playwright-python -m screencast verify var/screencasts/$(STORY)/latest
+
+# The same story with no recording: fast and assert-only, for the fix loop
+# (`python -m screencast run --no-record` under the hood). The call that
+# asserts is the call that documents, same spirit as `make ui-test`.
+story-test:
+	playwright-python -m screencast run scripts/screencasts/$(STORY).robot \
+		--no-record --take var/screencasts/$(STORY)/latest-test

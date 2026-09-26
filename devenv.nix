@@ -44,6 +44,11 @@
     pkgs.curl
     # Browsers for `make e2e` (see the e2e-smoke script below).
     pkgs.playwright-driver.browsers
+    # Scenario/screencast recording compositing (ffmpeg/ffprobe). Pinned here
+    # instead of resolved per call via `nix shell --impure --expr
+    # 'builtins.getFlake "nixpkgs"'`, which re-evaluates the flake registry
+    # on every invocation.
+    pkgs.ffmpeg-headless
   ];
 
   languages.java = {
@@ -80,12 +85,14 @@
       -m scripts.uitest "$@"
   '';
 
-  # The documented runner for the recording scripts (docs/AGENTS.md), e.g.
-  # `playwright-python scripts/scenarios/e2e_renovation_project.py`. Same nixpkgs
-  # playwright as e2e-smoke, and runs from the repo root because those scripts
-  # resolve examples/ and docs/ relatively.
+  # The documented runner for the screencast toolkit (docs/AGENTS.md), e.g.
+  # `playwright-python -m screencast run scripts/screencasts/review_process.robot`.
+  # Same nixpkgs playwright as e2e-smoke. Runs from the repo root, with
+  # scripts/ on PYTHONPATH, because both the screencast package and the
+  # stories it runs resolve examples/ and docs/ relatively.
   scripts.playwright-python.exec = ''
     cd "$DEVENV_ROOT"
+    export PYTHONPATH="$DEVENV_ROOT/scripts''${PYTHONPATH:+:$PYTHONPATH}"
     exec ${pkgs.python312.withPackages (ps: [ ps.playwright ])}/bin/python "$@"
   '';
 

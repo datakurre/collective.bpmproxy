@@ -125,6 +125,7 @@ never hard-coded in the story. Keywords, by what they are for:
 | Human-paced input | `Human Move`, `Human Click`, `Human Type`, `Paste Text` (for long text), `Press Key`, `Select Option`, `Check`, `Uncheck` |
 | Waiting and reading | `Wait Until Visible`, `Wait For Navigation Away`, `Count Matches`, `Get Attribute`, `Get Url`, `Get Current Page` (the raw Playwright page) |
 | Navigation and shots | `Go To`, `Take Screenshot` |
+| Data shared between tasks and runs | `Save State`, `Load State`, `Clear State` |
 | Edit events (no browser time) | `Chapter`, `Focus`, `Hold`, `Caption` |
 
 `Start Actor Turn` logs the persona in with HTTP Basic auth as `actor` /
@@ -184,6 +185,57 @@ view (nothing to inset yet); during a turn its actor is main and the
 observer is the inset; between turns the main view follows the most recent
 `focus` event, default observer. A story only calls `Focus` to override one
 of these defaults for a specific stretch.
+
+# Sharing data between tasks, and re-running one task
+
+A variable assigned in a Robot task is local to it, and `Set Suite Variable`
+lives only in the running process. A story that carries something from one
+task to the next (a created item's URL) therefore cannot re-run a single later
+task: it would start without what the earlier tasks learned. Keep such data in
+the take directory's `state.json`:
+
+```robotframework
+Alice Adds A Page
+    ...
+    ${page_url}=    Get Url
+    Set Suite Variable    ${PAGE_URL}    ${page_url}
+    Save State    page_url    ${page_url}
+```
+
+`Save State    key    value` writes the file at once (atomically; the value
+must be JSON: a string, number, boolean, list or dict, e.g. `${{ {...} }}`).
+`Load State    key    default=` reads it back; without a `default` a missing key
+fails and names the keys that do exist. `Clear State` forgets everything. A
+story restores what its tasks need in a `Suite Setup`, which runs even when only
+one task is selected:
+
+```robotframework
+Suite Setup       Restore The Story State
+
+*** Keywords ***
+Restore The Story State
+    ${page_url}=    Load State    page_url    default=${EMPTY}
+    Set Suite Variable    ${PAGE_URL}    ${page_url}
+```
+
+The driver ties this together: **a full `run` starts from empty state** (the take
+directory may be reused, and the previous take's data must not leak in), and
+**`run --take <same dir> --task "Task name"` continues from the state the
+previous run saved**. After a failure, fix the cause and re-run just the
+failing task; no earlier task is replayed:
+
+```sh
+screencast run story.robot --no-record --take <dir> --task "Bob Approves The Page"
+```
+
+What this does *not* do: only data is restored, never a browser session, so a
+**recorded** take must still run start to finish. With `--no-record` an actor
+turn works on its own (there is no observer clip to time it against), but a
+task that drives the observer (`Observe`, ...) fails without the observer task
+that starts it. And the application must still be in the state the earlier tasks
+left it in, so do not re-run past a task that resets it. `state.json` may hold
+credentials (a Playwright storage state, say); keep the take directory out of
+version control.
 
 # The agent debug loop
 

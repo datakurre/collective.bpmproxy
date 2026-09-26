@@ -49,7 +49,7 @@ Playwright, jsonschema and ffmpeg; paste it into bug reports.
 
 | Command | |
 |---|---|
-| `run story.robot [--task NAME] [--no-record] [--take DIR]` | Run a story in-process and write `timeline.json` and the clips. On failure it prints the keyword path, the message, the traceback and the failure screenshots. `--repl-on-failure` pauses before the failing turn's teardown and drops into a REPL against the still-open page |
+| `run story.robot [--task NAME] [--no-record] [--take DIR]` | Run a story in-process and write `timeline.json` and the clips. A full run starts from empty state; `--take <dir> --task NAME` re-runs one task from the state the previous run saved (`Save State` / `Load State`, kept in `<take dir>/state.json`). On failure it prints the keyword path, the message, the traceback and the failure screenshots. `--repl-on-failure` pauses before the failing turn's teardown and drops into a REPL against the still-open page |
 | `probe KEYWORD args... [--resource FILE]` | Run one keyword against the live browser session |
 | `keywords FILE` | List a resource file's keywords with arguments and docs |
 | `check story.robot` | Dry-run a story (no browser) |

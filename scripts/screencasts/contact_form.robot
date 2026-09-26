@@ -94,7 +94,9 @@ Reception Replies To The First Inquiry
     [Documentation]    Contact form · 4 / 6.
     [Setup]    Start Actor Turn    reception    eyebrow=Contact form · 4 / 6
     ...    title=Reception    subtitle=Replying to the venue inquiry
-    Open Task    Review contact    base_url=${PROXY_URL}
+    # The task list is newest-first: the venue inquiry was submitted
+    # first, so its task is the last row, not the first.
+    Open Task    Review contact    base_url=${PROXY_URL}    index=-1
     Take Screenshot    ${DOCS_DIR}/contact-form-review-tasks.png
     Human Click    label=Reply to sender by email
     Paste Text    label=Reply message

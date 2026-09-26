@@ -146,15 +146,27 @@ Wait For Task
     Wait Until Keyword Succeeds    ${retries}    ${interval}    Task Is Visible    ${task_name}    ${base_url}
 
 Task Is Visible
+    [Documentation]    One polling attempt for `Wait For Task`. A Bpm Proxy
+    ...    page lists its tasks under a "Task list" tab that is hidden
+    ...    until clicked; a Tasks portlet (other pages) has no such tab.
+    ...    Match an *anchor*, not bare text: with the diagram enabled,
+    ...    `text=<task name>` first resolves to the BPMN diagram's own
+    ...    (hidden) SVG label and never reaches the task link.
     [Arguments]    ${task_name}    ${base_url}
     Go To    ${base_url}
-    Wait Until Visible    text=${task_name}    timeout=1000
+    ${tabs}=    Count Matches    role=link[name="Task list"s]
+    IF    ${tabs} > 0
+        Human Click    role=link[name="Task list"s]
+    END
+    Wait Until Visible    a:has-text("${task_name}")    timeout=1000
 
 Open Task
-    [Documentation]    Wait for, then open, a task named `task_name`.
-    [Arguments]    ${task_name}    ${base_url}=${BASE_URL}
+    [Documentation]    Wait for, then open, a task named `task_name`. When
+    ...    several tasks share the name (one per process instance), `index`
+    ...    picks one: 0 is the first row, -1 the last.
+    [Arguments]    ${task_name}    ${base_url}=${BASE_URL}    ${index}=0
     Wait For Task    ${task_name}    base_url=${base_url}
-    Human Click    text=${task_name}
+    Human Click    a:has-text("${task_name}")    index=${index}
 
 Submit Task Form
     [Documentation]    Click a task form's submit button by its visible

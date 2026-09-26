@@ -67,8 +67,9 @@ Who writes what:
 
 A complete worked example of the two upper layers — three stories with
 several personas each and an observer, and the shared keyword layer they use —
-is [collective.bpmproxy](https://github.com/datakurre/collective.bpmproxy)'s
-`scripts/screencasts/`, where the engine was written.
+is the `scripts/screencasts/` of this repository's
+[`legacy-playground`](https://github.com/datakurre/robotframework-screencast/tree/legacy-playground)
+branch, the project (collective.bpmproxy) the engine was written for.
 
 # Scaffolding a new story
 

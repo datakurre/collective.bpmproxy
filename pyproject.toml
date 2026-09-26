@@ -34,7 +34,8 @@ screencast = "screencast.__main__:main"
 
 [project.urls]
 Source = "https://github.com/datakurre/robotframework-screencast"
-Example = "https://github.com/datakurre/collective.bpmproxy/tree/master/scripts/screencasts"
+Documentation = "https://datakurre.github.io/robotframework-screencast/"
+Example = "https://github.com/datakurre/robotframework-screencast/tree/legacy-playground/scripts/screencasts"
 
 [tool.hatch.version]
 path = "src/screencast/__init__.py"

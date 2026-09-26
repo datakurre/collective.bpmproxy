@@ -32,6 +32,8 @@ screencast compose <take dir>       # compose them into output.webm
 screencast verify <take dir>        # ffprobe, blank frames, dead air, contact sheet
 ```
 
+**Documentation:** <https://datakurre.github.io/robotframework-screencast/>
+
 ## What is in it
 
 Three layers, and only the first is in this repository:
@@ -88,18 +90,17 @@ Not published to PyPI, and no release is planned for now. Install from git:
 pip install "git+https://github.com/datakurre/robotframework-screencast"
 ```
 
-Until that repository is created from this branch, use the branch it comes
-from: `pip install "git+https://github.com/datakurre/collective.bpmproxy@screencast-engine"`.
-
 ## An example use case
 
-The engine was built for, and is still used by,
-[collective.bpmproxy](https://github.com/datakurre/collective.bpmproxy), whose
-`scripts/screencasts/` holds three complete stories (a review process, a
-contact form and a renovation project, each with several personas and Cockpit
-as the observer) and the project keyword layer (`resources/bpmproxy.resource`)
-that they share. That repository is the reference example of the two upper
-layers, and its `docs/*-scenario.md` walk through each story.
+The engine was written for a Plone and Operaton (BPMN) project,
+collective.bpmproxy, and that project's playground lives on in this repository
+as the [`legacy-playground`](https://github.com/datakurre/robotframework-screencast/tree/legacy-playground)
+branch. Its `scripts/screencasts/` holds three complete stories (a review
+process, a contact form and a renovation project, each with several personas and
+Cockpit as the observer) and the project keyword layer
+(`resources/bpmproxy.resource`) that they share, and its `docs/*-scenario.md`
+walk through each story. That branch is the reference example of the two upper
+layers.
 
 ## Development
 
@@ -114,23 +115,20 @@ synthetic clips. CI runs them on Robot Framework 7.4.2 and the latest release.
 
 ## Provenance
 
-This branch's history is the engine's own: it was extracted from
-collective.bpmproxy with `git filter-repo`, keeping only the commits that
-touched the engine (`scripts/screencast/`, moved to `src/screencast/`) and its
-agent skill (`.agents/skills/screencast/`). Commit messages and code comments
-that refer to `#N` issues mean issues of that repository, and some comments
-use its Plone and Operaton scenario as illustration; the code itself imports
-and assumes nothing from it. See datakurre/collective.bpmproxy#13.
+`main`'s history is the engine's own: it was extracted from the repository's
+former default branch (now `legacy-playground`) with `git filter-repo`, keeping
+only the commits that touched the engine (`scripts/screencast/`, moved to
+`src/screencast/`) and its agent skill (`.agents/skills/screencast/`). Commit
+messages and code comments that refer to `#N` issues mean issues of this
+repository, and some comments use the Plone and Operaton scenario as
+illustration; the code itself imports and assumes nothing from it.
 
 ### Open work
 
-- Create the `robotframework-screencast` repository from this branch:
-  `git push git@github.com:datakurre/robotframework-screencast.git screencast-engine:main`.
-  The schema `$id` and the URLs in `pyproject.toml` already point there.
-- Some comments and tests still use collective.bpmproxy's Plone and Operaton
-  scenario as illustration; the code itself imports and assumes nothing from it.
-- collective.bpmproxy keeps its own copy of the engine under `scripts/screencast/`
-  for now; it switches to this package only if one is ever published.
+- Some comments and tests still use that scenario as illustration.
+- The `legacy-playground` branch keeps its own copy of the engine under
+  `scripts/screencast/`; it switches to this package only if one is ever
+  published (no PyPI release is planned for now).
 
 ## License
 

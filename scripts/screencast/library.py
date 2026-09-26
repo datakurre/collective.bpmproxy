@@ -29,6 +29,7 @@ from screencast.cursor import MOVE_STEPS
 from screencast.cursor import TYPE_DELAY_MS
 from screencast.timeline import Timeline
 import base64
+import json
 import os
 import time
 
@@ -61,6 +62,12 @@ _WAITING_KEYWORDS = frozenset(
     }
 )
 WAIT_TAG = "screencast:wait"
+
+# Data shared between tasks and runs, kept in the take directory so a later
+# `run --take <same dir> --task ...`, another suite, or a fresh process can
+# read it back (see Save State / Load State).
+STATE_FILE = "state.json"
+_MISSING = object()
 # A wait shorter than this is not dead air, only a page settling; recording
 # every one would just fill the timeline with noise.
 WAIT_MIN_RECORDED = 0.25
@@ -113,6 +120,11 @@ class _Session:
 
     def elapsed(self):
         if self.started is None:
+            if not self.record:
+                # Nothing is recorded, so there is no clock to keep: a
+                # partial `--no-record` run may play an actor turn without
+                # the observer task that would have started it.
+                return 0.0
             raise FatalError("No observer started yet -- call Start Observer first")
         return time.monotonic() - self.started
 
@@ -287,6 +299,35 @@ def _track_console(page):
         "requestfailed",
         lambda req: log.append(f"requestfailed: {req.url} {req.failure}"),
     )
+
+
+def _state_path():
+    return Path(_SESSION.take_dir) / STATE_FILE
+
+
+def _read_state():
+    path = _state_path()
+    if not path.exists():
+        return {}
+    try:
+        state = json.loads(path.read_text())
+    except ValueError as error:
+        raise AssertionError(f"{path} is not valid JSON: {error}") from error
+    if not isinstance(state, dict):
+        raise AssertionError(
+            f"{path} must hold a JSON object, not {type(state).__name__}"
+        )
+    return state
+
+
+def _write_state(state):
+    path = _state_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # Write beside it and rename: a crash mid-write must not leave half a file
+    # for the next run to choke on.
+    scratch = path.with_name(path.name + ".tmp")
+    scratch.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n")
+    os.replace(scratch, path)
 
 
 class Screencast:
@@ -521,7 +562,11 @@ class Screencast:
         e2e_*.py scripts drew and waited 8s for on every turn.
         """
         if _SESSION.observer_context is None:
-            raise FatalError("No observer -- call Start Observer first")
+            if _SESSION.record:
+                raise FatalError("No observer -- call Start Observer first")
+            # Not recording, so there is no observer clip to time the turn
+            # against: allow it, so one task can be re-run on its own.
+            self.start_browser()
         if _SESSION._turn_context is not None:
             raise FatalError(
                 f"Actor turn for {_SESSION.current_actor!r} was not closed "
@@ -849,6 +894,56 @@ class Screencast:
         page.goto(url, wait_until="load")
         if page is _SESSION._turn_page and not _SESSION._turn_start_recorded:
             self._record_turn_start()
+
+    # -- state shared between tasks and runs -------------------------------
+
+    def save_state(self, key, value):
+        """Keep `value` under `key` in `<take dir>/state.json`, for a later
+        task, suite or run to read back with `Load State`.
+
+        A variable assigned in a Robot Framework task is local to it, and
+        `Set Suite Variable` lives only in this process, so a re-run of one
+        task (`run --take <dir> --task ...`) would start without what the
+        earlier tasks learned -- a created item's URL, say. The file is
+        written at once (atomically), like `timeline.json`.
+
+        `value` must be JSON: a string, number, boolean, list or dict (build
+        one with `${{ ... }}`). The file may hold credentials (a Playwright
+        storage state, say): it lives in the take directory, which is not
+        meant to be committed.
+        """
+        try:
+            json.dumps(value)
+        except (TypeError, ValueError) as error:
+            raise AssertionError(
+                f"State {key!r} must be JSON (a string, number, boolean, list or "
+                f"dict), not a {type(value).__name__}: {error}"
+            ) from error
+        state = _read_state()
+        state[str(key)] = value
+        _write_state(state)
+
+    def load_state(self, key, default=_MISSING):
+        """The value `Save State` kept under `key`, or `default` when there is
+        none. Without a `default`, a missing key fails with the keys that do
+        exist. A full `screencast run` starts from empty state; `run --task`
+        (with the same `--take`) continues from what the previous run saved."""
+        state = _read_state()
+        if str(key) in state:
+            return state[str(key)]
+        if default is not _MISSING:
+            return default
+        saved = ", ".join(sorted(state)) or "nothing"
+        raise AssertionError(
+            f"No state saved under {key!r} (saved: {saved}) in {_state_path()}. "
+            "Run the task that saves it first, or re-run with --take pointing "
+            "at the take directory that has it."
+        )
+
+    def clear_state(self):
+        """Forget everything `Save State` kept. A full `screencast run` does
+        this by itself; call it first in a story run some other way."""
+        _state_path().unlink(missing_ok=True)
 
     def get_url(self):
         """The current page's URL."""

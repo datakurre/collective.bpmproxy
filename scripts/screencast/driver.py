@@ -19,6 +19,7 @@ from robot.running.builder import ResourceFileBuilder
 from screencast.console import TaskConsole
 from screencast.library import _RECOVERING_WRAPPER_KEYWORDS
 from screencast.library import Screencast
+from screencast.library import STATE_FILE
 import datetime
 import sys
 import tempfile
@@ -87,6 +88,14 @@ def run(
     take_dir = Path(take_dir) if take_dir else default_take_dir(story)
     take_dir.mkdir(parents=True, exist_ok=True)
     output = take_dir / "output.json"
+    if task is None:
+        # A full run starts from empty state, as it starts from empty
+        # everything else: the take directory may be reused (`make
+        # screencast` always writes to the same one), and data the previous
+        # take saved must not leak into this one. A partial run (`--task`)
+        # is the case state exists for: it continues from what the previous
+        # run in this directory saved.
+        (take_dir / STATE_FILE).unlink(missing_ok=True)
 
     suite = TestSuite.from_file_system(story)
     if task:

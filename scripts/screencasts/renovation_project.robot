@@ -11,6 +11,7 @@ Documentation     The renovation-project scenario: a case manager starts a
 ...               generic engine (#1-#7) and bpmproxy.resource (#8).
 Library           screencast.Screencast    take_dir=${TAKE_DIR}    record=${RECORD}
 Resource          resources/bpmproxy.resource
+Suite Setup       Restore The Story State
 
 
 *** Variables ***
@@ -46,6 +47,7 @@ Manager Creates The Case
     ${page}=    Get Current Page
     ${case_url}=    Evaluate    $page.url.removesuffix("/view")
     Set Suite Variable    ${CASE_URL}    ${case_url}
+    Save State    case_url    ${case_url}
     [Teardown]    End Actor Turn
 
 Manager Shares The Case
@@ -74,6 +76,7 @@ Contractor Adds A Document
     ${page}=    Get Current Page
     ${document_url}=    Evaluate    $page.url.removesuffix("/view")
     Set Suite Variable    ${DOCUMENT_URL}    ${document_url}
+    Save State    document_url    ${document_url}
     Take Screenshot    ${SHOTS_DIR}/renovation-project-document-added.png
     [Teardown]    End Actor Turn
 
@@ -138,3 +141,16 @@ Wrap Up In Cockpit History
     Show Completed Instance In History    ${CASE_PROCESS_KEY}
     Take Screenshot    ${SHOTS_DIR}/renovation-project-cockpit-completed.png
     End Observer
+
+
+*** Keywords ***
+Restore The Story State
+    [Documentation]    The case and the document are created by earlier tasks
+    ...    and later tasks use their URLs. A partial run (`--task`) starts
+    ...    without those earlier tasks, so pick up what the previous run in
+    ...    this take directory saved; a full run starts from empty state, and
+    ...    these stay empty until the tasks that create them run.
+    ${case_url}=    Load State    case_url    default=${EMPTY}
+    ${document_url}=    Load State    document_url    default=${EMPTY}
+    Set Suite Variable    ${CASE_URL}    ${case_url}
+    Set Suite Variable    ${DOCUMENT_URL}    ${document_url}

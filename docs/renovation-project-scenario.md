@@ -163,6 +163,26 @@ accident; after a take you are happy with,
 | `renovation-project-closed.png` | Case after the manager closes it |
 | `renovation-project-cockpit-completed.png` | Completed case in Cockpit History |
 
+## Re-running one task
+
+The case and the document are created by early tasks and used by later ones, so
+the story saves their URLs with `Save State` (in the take directory's
+`state.json`) and restores them in its `Suite Setup`. A full run starts from
+empty state; a run with `TASK=` continues from what the previous run in the same
+directory saved, so after a failure you fix the cause and re-run only the
+failing task, with no earlier task replayed:
+
+```sh
+make story-test STORY=renovation_project                 # fails in a later task
+make story-test STORY=renovation_project TASK="Inspector Approves The Document"
+```
+
+Only data is restored, never a browser session: a recorded take
+(`make screencast`) still runs start to finish, and a task that drives the
+Cockpit observer (`Observe`, ...) cannot run without the observer task that
+starts it. The application must still be in the state the earlier tasks left it
+in: do not re-run past a task that resets it.
+
 ## Verifying a take
 
 The story's exit status alone does not verify the video -- `verify` does:

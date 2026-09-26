@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    name: Python ${{ matrix.python }}, ${{ matrix.robotframework }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.13"]
+        # The oldest supported Robot Framework and the newest. An API that
+        # only newer releases have (robot.api.console needs 7.5) fails here.
+        robotframework: ["robotframework==7.4.2", "robotframework"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      # The composer and verifier tests run real ffmpeg on tiny clips; the
+      # library tests use a fake Playwright, so no browser is needed.
+      - name: Install ffmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y ffmpeg
+      - name: Install
+        run: pip install -e ".[test]" "${{ matrix.robotframework }}"
+      - name: Versions
+        run: screencast --version
+      - name: Test
+        run: pytest
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uvx ruff check src
+      - run: uvx ruff format --check src
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv build
+      - run: uvx twine check dist/*

@@ -7,6 +7,14 @@ metadata:
   audience: developers-and-agents
 ---
 
+> **Provenance.** This skill was extracted together with the engine from
+> collective.bpmproxy and still describes that repository's setup: paths such
+> as `scripts/screencast/` are `src/screencast/` here, `make screencast`,
+> `make demo-stack` and the Operaton/Plone stack are collective.bpmproxy's, and
+> `scripts/screencasts/` is where its stories and `bpmproxy.resource` live (the
+> example use case). Splitting it into a generic part and a project part is
+> open work; see the README.
+
 ## Before you start
 
 - Load the `browser` skill first if you haven't — this skill assumes you

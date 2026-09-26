@@ -55,6 +55,15 @@ keywords (`Library screencast.Screencast`) and `python -m screencast`.
   parent repo carrying this source directly (named explicitly as the epic's
   own last sub-issue, once this one lands).
 
+## Supported versions
+
+**Robot Framework 7.4 or newer.** 7.4.2 is what the nixpkgs pinned by this
+repository's devenv ships, so it is what users actually run; CI tests it and
+the latest release. Anything newer than 7.4 that the engine can use only when
+present (`robot.api.console`, from 7.5) is imported behind a guard. Use
+`python -m screencast --version` to print the resolved versions of Robot
+Framework, Playwright, jsonschema and ffmpeg, and paste them into bug reports.
+
 ## Running its own tests
 
 ```sh

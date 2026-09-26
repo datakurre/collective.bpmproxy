@@ -532,3 +532,21 @@ def test_check_leaves_nothing_behind_in_the_working_directory(tmp_path, monkeypa
     monkeypatch.chdir(tmp_path)
     assert driver.check(story) == []
     assert sorted(path.name for path in tmp_path.iterdir()) == [story.name]
+
+
+def test_version_prints_the_resolved_versions(capsys):
+    from screencast.__main__ import main
+
+    with pytest.raises(SystemExit) as exit_info:
+        main(["--version"])
+    assert exit_info.value.code == 0
+    output = capsys.readouterr().out
+    for label in (
+        "python:",
+        "robotframework:",
+        "playwright:",
+        "jsonschema:",
+        "ffmpeg:",
+    ):
+        assert label in output
+    assert "robotframework: not installed" not in output

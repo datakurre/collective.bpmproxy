@@ -24,6 +24,38 @@ import sys
 import tempfile
 
 
+def versions():
+    """The resolved versions of everything the engine runs on, so an
+    environment mismatch (CI and devenv resolve Robot Framework, Playwright
+    and ffmpeg independently) is obvious in a bug report."""
+    import importlib.metadata
+    import platform
+    import shutil
+    import subprocess
+
+    found = {"python": platform.python_version()}
+    for label, distribution in (
+        ("robotframework", "robotframework"),
+        ("playwright", "playwright"),
+        ("jsonschema", "jsonschema"),
+    ):
+        try:
+            found[label] = importlib.metadata.version(distribution)
+        except importlib.metadata.PackageNotFoundError:
+            found[label] = "not installed"
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg:
+        first_line = subprocess.run(
+            [ffmpeg, "-version"], capture_output=True, text=True, check=False
+        ).stdout.splitlines()[:1]
+        found["ffmpeg"] = (
+            first_line[0].removeprefix("ffmpeg version ") if first_line else "unknown"
+        )
+    else:
+        found["ffmpeg"] = "not on PATH"
+    return found
+
+
 def default_take_dir(story, base=None):
     stem = Path(story).stem
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
